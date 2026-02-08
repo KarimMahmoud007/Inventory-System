@@ -1,9 +1,28 @@
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableView
+from PySide6.QtSql import QSqlTableModel,QSql
+from PySide6.QtSql import QSqlDatabase
+from Utilities.utilities import create_QtConnection
+import os
 
-class StockWindow(tk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.controller = controller
 
-        tk.Label(self, text="Stock Window").pack(pady=10)
+class StockWindow(QWidget):
+
+    def __init__(self):
+        super().__init__()
+
+        layout = QVBoxLayout(self)
+
+        table = QTableView()
+        layout.addWidget(table)
+
+        model = QSqlTableModel(self)
+        model.setTable("stock")
+        model.select()
+
+        table.setModel(model)
+        table.setSortingEnabled(True)
+        table.resizeColumnsToContents()
+
+        db = create_QtConnection()
+
+

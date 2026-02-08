@@ -1,9 +1,8 @@
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
-class StaffWindow(tk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.controller = controller
+class StaffWindow(QWidget):
+    def __init__(self):
+        super().__init__()
 
-        tk.Label(self, text="Staff Window").pack(pady=10)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Staff Page"))

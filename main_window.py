@@ -1,75 +1,96 @@
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget,
+    QHBoxLayout, QVBoxLayout,
+    QPushButton, QStackedWidget
+)
+from PySide6.QtCore import Qt
+
+
 from UI.stock_window import StockWindow
 from UI.order_window import OrderWindow
 from UI.staff_window import StaffWindow
-from UI.home_window  import HomeWindow
-from UI.test_window  import TestWindow
+from UI.home_window import HomeWindow
+from UI.test_window import TestWindow
 
-class MainWindow(tk.Tk):
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.title("Inventory System")
-        self.geometry("800x600")
+        self.setWindowTitle("Inventory System")
+        self.resize(800, 600)
 
-        # 1. MODERN STYLING CONFIGURATION
-        style = ttk.Style()
-        style.theme_use('clam')  # 'clam' is usually the cleanest built-in theme
+        # Central widget
+        central = QWidget()
+        self.setCentralWidget(central)
 
-        # Configure Colors
-        bg_color = "#f0f0f0"
-        sidebar_color = "#2c3e50"
-        text_color = "#ffffff"
+        main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.configure(bg=bg_color)
-
-        # Style Definitions
-        style.configure("Sidebar.TFrame", background=sidebar_color)
-        style.configure("Content.TFrame", background=bg_color)
-        style.configure("Nav.TButton", font=('Segoe UI', 11), padding=10)
-
-        # Container for Layout (Sidebar + Main)
-        main_layout = ttk.Frame(self)
-        main_layout.pack(fill="both", expand=True)
-
+        # -------------------
         # Sidebar
-        sidebar = ttk.Frame(main_layout, style="Sidebar.TFrame", width=200)
-        sidebar.pack(side="left", fill="y")
+        # -------------------
+        sidebar = QWidget()
+        sidebar.setFixedWidth(200)
+        sidebar.setStyleSheet("""
+            background-color: #2c3e50;
+        """)
 
-        # Content Area
-        container = ttk.Frame(main_layout, style="Content.TFrame")
-        container.pack(side="right", fill="both", expand=True)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setSpacing(2)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.frames = {}
+        # -------------------
+        # Stacked Pages
+        # -------------------
+        self.pages = QStackedWidget()
 
-        # Create Buttons in Sidebar
-        buttons = [("Home", "HomeWindow"), ("Stock", "StockWindow"),
-                   ("Orders", "OrderWindow"), ("Staff", "StaffWindow"),("Test", "TestWindow")]
+        self.page_map = {
+            "Home": HomeWindow(),
+            "Stock": StockWindow(),
+            "Orders": OrderWindow(),
+            "Staff": StaffWindow(),
+            "Test": TestWindow(),
+        }
 
-        for text, page in buttons:
-            btn = tk.Button(sidebar, text=text, bg=sidebar_color, fg=text_color,
-                            bd=0, font=("Segoe UI", 12), activebackground="#34495e", activeforeground="white",
-                            command=lambda p=page: self.show_frame(p))
-            btn.pack(fill="x", pady=2)
+        for page in self.page_map.values():
+            self.pages.addWidget(page)
 
+        # -------------------
+        # Sidebar Buttons
+        # -------------------
+        for name in self.page_map:
+            btn = QPushButton(name)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton {
+                    color: white;
+                    padding: 12px;
+                    border: none;
+                    text-align: left;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background-color: #34495e;
+                }
+            """)
+            btn.clicked.connect(lambda checked, n=name: self.show_page(n))
+            sidebar_layout.addWidget(btn)
 
-        for F in (StockWindow, OrderWindow, StaffWindow,HomeWindow,TestWindow):
-            page_name = F.__name__
-            frame = F(parent=container, controller=self)
-            self.frames[page_name] = frame
-            frame.grid(row=0, column=0, sticky="nsew")
+        sidebar_layout.addStretch()
 
-            # Configure grid weight for the container to center/stretch content
-            container.grid_rowconfigure(0, weight=1)
-            container.grid_columnconfigure(0, weight=1)
+        # -------------------
+        # Layout Assembly
+        # -------------------
+        main_layout.addWidget(sidebar)
+        main_layout.addWidget(self.pages)
 
-        self.show_frame("HomeWindow")
+        self.show_page("Home")
 
-    def show_frame(self, page_name):
-        frame = self.frames[page_name]
-        frame.tkraise()
+    def show_page(self, name):
+        self.pages.setCurrentWidget(self.page_map[name])
 
 
 if __name__ == "__main__":
-    app = MainWindow()
-    app.mainloop()
+    app = QApplication([])
+    window = MainWindow()
+    window.show()
+    app.exec()

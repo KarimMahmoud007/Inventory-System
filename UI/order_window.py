@@ -1,9 +1,8 @@
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
-class OrderWindow(tk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.controller = controller
+class OrderWindow(QWidget):
+    def __init__(self):
+        super().__init__()
 
-        tk.Label(self, text="Order Window").pack(pady=10)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Staff Page"))

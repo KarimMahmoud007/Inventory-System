@@ -1,9 +1,14 @@
-import tkinter as tk
-from tkinter import ttk
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
+from PySide6.QtCore import Qt
 
-class HomeWindow(tk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.controller = controller
+class HomeWindow(QWidget):
+    def __init__(self):
+        super().__init__()
 
-        tk.Label(self, text="Welcome To Home Window").pack(pady=10)
+        layout = QVBoxLayout(self)
+
+        title = QLabel("Home")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 24px;")
+
+        layout.addWidget(title)
