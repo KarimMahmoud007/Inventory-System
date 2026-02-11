@@ -6,11 +6,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 
-from UI.stock_window import StockWindow
-from UI.order_window import OrderWindow
-from UI.staff_window import StaffWindow
-from UI.home_window import HomeWindow
-from UI.test_window import TestWindow
+from views.stock_window import StockWindow
+from views.order_window import OrderWindow
+from views.staff_window import StaffWindow
+from views.home_window import HomeWindow
+from views.test_window import TestWindow
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -94,3 +94,4 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
     app.exec()
+

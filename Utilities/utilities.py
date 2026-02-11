@@ -16,7 +16,7 @@ def create_connection(db_file):
     return conn
 
 def create_QtConnection():
-    db_path = r"C:/Users/karim Mahmoud/PycharmProjects/Inventory/Database/inventory.db"
+    db_path = r"C:/Users/karim Mahmoud/PycharmProjects/Inventory/Database/Inventory.db"
 
 
     if QSqlDatabase.contains("inventory_connection"):

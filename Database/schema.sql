@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS wasted_stock (
     FOREIGN KEY (stock_id) REFERENCES stock(id)
 );
 
+/*ALTER TABLE stock ADD COLUMN batch INTEGER;
+*/
 
+/*ALTER TABLE stock DROP COLUMN batch;*/
 
 
