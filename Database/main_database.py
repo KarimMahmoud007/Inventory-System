@@ -1,33 +1,16 @@
-import sqlite3 as sql
-from sqlite3 import Error
-import os
+from Utilities.utilities import create_connection
 
 
-def create_connection(db_file):
+if __name__ == "__main__":
+    conn = create_connection('Inventory.db')
+    cur = conn.cursor()
 
-    conn = None
+    with open("schema.sql", 'r') as file:
+        sql_script = file.read()
+    cur.executescript(sql_script)
 
-    try:
-        conn = sql.connect(db_file)
-        print("Successfully connected to database")
-        return conn
+    conn.commit()
 
-    except Error as e:
-        print(e)
+    print(f"Successfully executed SQL script schema.sql")
 
-    return conn
-
-
-conn = create_connection('Inventory.db')
-cur = conn.cursor()
-
-with open("schema.sql", 'r') as file:
-    sql_script = file.read()
-
-cur.executescript(sql_script)
-
-conn.commit()
-
-print(f"Successfully executed SQL script schema.sql")
-
-conn.close()
+    conn.close()
