@@ -1,24 +1,26 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableView, QHeaderView, QPushButton
-from Controllers.stock_controller import *
+
 from Model.stock_model import *
 
-from views.addstock_window import AddStockWindow
+
 
 class StockWindow(QWidget):
+    insert_view_signal = Signal()
+    def __init__(self,model):
 
-    def __init__(self):
+
         super().__init__()
 
-        self.model = get_stock_model(self)
+
 
         # Setting headers
         headers = ["ID","Name", "Unit", "Price", "Production Date", "Expiration Date", "Quantity","Batch"]
         for i, header in enumerate(headers):
-            self.model.setHeaderData(i, Qt.Horizontal, header)
+            model.setHeaderData(i, Qt.Horizontal, header)
 
         self.table = QTableView()
-        self.table.setModel(self.model)
+        self.table.setModel(model)
 
         # Optional: Make columns stretch to fill the table width for a cleaner look
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -31,8 +33,8 @@ class StockWindow(QWidget):
         layout.addWidget(self.table)
 
 
-        self.button = QPushButton("ADD")
-        self.button.clicked.connect(self.add_click_button)
+        self.button = QPushButton("Insert")
+        self.button.clicked.connect(self.insertButton)
         layout.addWidget(self.button)
 
         # 2. Align the contents of the layout to the center
@@ -45,6 +47,8 @@ class StockWindow(QWidget):
         self.resize(500, 400)
 
 
-    def add_click_button(self):
-        self.w = AddStockWindow()
-        self.w.show()
+
+    def insertButton(self):
+        self.insert_view_signal.emit()
+
+

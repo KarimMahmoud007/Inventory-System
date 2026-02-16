@@ -18,9 +18,8 @@ def create_connection(db_file):
 def create_QtConnection():
     db_path = r"C:/Users/karim Mahmoud/PycharmProjects/Inventory/Database/Inventory.db"
 
-
     if QSqlDatabase.contains("inventory_connection"):
-        QSqlDatabase.removeDatabase("inventory_connection")
+        return QSqlDatabase.database("inventory_connection")
 
     db = QSqlDatabase.addDatabase("QSQLITE", "inventory_connection")
     db.setDatabaseName(db_path)
@@ -30,6 +29,7 @@ def create_QtConnection():
         exit()
     else:
         print("Database opened successfully:", db.databaseName())
+
     return db
 
 if __name__ == '__main__':

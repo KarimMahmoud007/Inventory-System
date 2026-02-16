@@ -1,8 +1,9 @@
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, Signal
 from PySide6.QtWidgets import QWidget, QDateEdit, QLineEdit, QFormLayout, QPushButton
-from Controllers.stock_controller import get_data
+
 
 class AddStockWindow(QWidget):
+    data_received_signal = Signal(list)
     def __init__(self):
         super().__init__()
 
@@ -44,5 +45,4 @@ class AddStockWindow(QWidget):
                 self.data.append(widget.date().toString("yyyy-MM-dd"))
             else:
                 self.data.append(widget.text())
-        get_data(self.data)
-
+        self.data_received_signal.emit(self.data)

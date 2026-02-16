@@ -1,32 +1,41 @@
+from PySide6.QtCore import QObject
 from PySide6.QtSql import QSqlQuery
 from Utilities.utilities import create_QtConnection
 from PySide6.QtSql import QSqlTableModel
 
+class StockModel (QObject):
+    def __init__(self):
+        super().__init__()
+        self.db = create_QtConnection()
 
 
-def post_data (data):
-    db = create_QtConnection()
-    query = QSqlQuery(db)
+    def postData(self,data):
 
-    query.prepare("INSERT INTO stock (name,unit_of_measure,price,production_date,expiration_date,quantity) "
-                "VALUES (?,?,?,?,?,?)")
+        row = self.model.rowCount()
+        self.model.insertRow(row)
 
-    query.addBindValue(data[0])          # name
-    query.addBindValue(data[1])          # unit
-    query.addBindValue(float(data[2]))   # price
-    query.addBindValue(data[3])          # production_date
-    query.addBindValue(data[4])          # expiration_date
-    query.addBindValue(int(data[5]))     # quantity
+        self.model.setData(self.model.index(row, 1), data[0])
+        self.model.setData(self.model.index(row, 2), data[1])
+        self.model.setData(self.model.index(row, 3), float(data[2]))
+        self.model.setData(self.model.index(row, 4), data[3])
+        self.model.setData(self.model.index(row, 5), data[4])
+        self.model.setData(self.model.index(row, 6), int(data[5]))
 
-    if query.exec():
-        print("Record inserted successfully.")
-    else:
-        print(f"Error inserting record: {query.lastError().text()}")
+        if not self.model.submitAll():
+            print("Submit failed:", self.model.lastError().text())
+        else:
+            print("Inserted into SQLite successfully")
+
+    def get_stock_model(self):
+        self.model = QSqlTableModel(self, self.db)
+        self.model.setTable("stock")
+        self.model.select()
+        return self.model
 
 
-def get_stock_model(parent):
-    db = create_QtConnection()
-    model = QSqlTableModel(parent, db)
-    model.setTable("stock")
-    model.select()
-    return model
+
+
+
+
+
+
