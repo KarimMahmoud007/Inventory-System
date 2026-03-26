@@ -12,7 +12,7 @@ from views.staff_window import StaffWindow
 from views.home_window import HomeWindow
 from views.test_window import TestWindow
 
-from Controllers.stock_controller import StockController
+from controllers.stock_controller import StockController
 
 
 
