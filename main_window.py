@@ -7,12 +7,13 @@ from PySide6.QtCore import Qt
 
 
 
-from views.order_window import OrderWindow
+
 from views.staff_window import StaffWindow
 from views.home_window import HomeWindow
 from views.test_window import TestWindow
 
 from controllers.stock_controller import StockController
+from controllers.recipes_controller import RecipesController
 
 
 
@@ -20,6 +21,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         self.stock_controller = StockController()
+        self.recipes_controller = RecipesController()
         super().__init__()
         self.setWindowTitle("Inventory System")
         self.resize(800, 600)
@@ -52,7 +54,7 @@ class MainWindow(QMainWindow):
         self.page_map = {
             "Home": HomeWindow(),
             "Stock": self.stock_controller.stock_view,
-            "Orders": OrderWindow(),
+            "Recipes": self.recipes_controller.recipes_view,
             "Staff": StaffWindow(),
             "Test": TestWindow(),
         }

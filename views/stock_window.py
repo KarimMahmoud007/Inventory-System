@@ -1,8 +1,8 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableView, QHeaderView, QPushButton, QAbstractItemView, QMenu
 
-from models.stock_model import *
+
 
 
 

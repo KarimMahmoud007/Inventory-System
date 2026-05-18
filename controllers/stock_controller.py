@@ -36,26 +36,26 @@ class StockController(QObject):
 
     def handle_add_stock_request(self, data):
         if validate_data(data):
-            self.model.post_data(data)
+            self.model.insert_stock_item(data)
         else:
             QMessageBox.warning(self.add_stock_window, "Validation Error", "Please fill all fields correctly.")
     #ADD STOCK END
 
     #EDIT STOCK START
     def open_edit_stock_window(self, selected_row):
-        stock_item = self.model.get_stock_data(selected_row)
+        stock_item = self.model.get_stock_item(selected_row)
         self.add_stock_window = AddStockWindow(2)
         self.add_stock_window.load_data(stock_item)
         self.add_stock_window.show()
 
         self.add_stock_window.stock_item_update_data.connect(
-            lambda value: self.handle_edit_stock_request(value, selected_row),self
+            lambda value: self.handle_edit_stock_request(value, selected_row)
         )
         self.model.item_updated_successfully.connect(self.add_stock_window.close)
 
     def handle_edit_stock_request(self, wrapped_data, selected_row):
         if validate_data(wrapped_data):
-            self.model.update_stock_data(wrapped_data, selected_row)
+            self.model.update_stock_item(wrapped_data, selected_row)
         else:
             QMessageBox.warning(self.add_stock_window, "Update Error", "Please fill all fields correctly.")
     #EDIT STOCK END
