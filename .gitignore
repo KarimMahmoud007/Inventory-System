@@ -1,0 +1,4 @@
+.venv/
+qt-env/
+__pycache__/
+*.pyc
