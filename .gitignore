@@ -2,3 +2,7 @@
 qt-env/
 __pycache__/
 *.pyc
+
+Utilities/__pycache__/
+models/__pycache__/
+views/__pycache__/

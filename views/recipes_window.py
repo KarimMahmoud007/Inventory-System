@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QColor, QPalette, QIcon
-from views.add_recipe_window import  AddRecipeWindow
 import sys
 
 
@@ -193,6 +192,8 @@ class RecipesPage(QWidget):
     Pass `recipes` as a list of dicts: [{"title": ..., "ingredients": [...]}]
     """
 
+    add_recipe_requested = Signal()
+
     COLUMNS      = 4
     CARD_SPACING = 18
 
@@ -322,11 +323,7 @@ class RecipesPage(QWidget):
 
     # -- slots ---------------------------------------------------------
     def _on_add_clicked(self):
-        self.add_recipe_view = AddRecipeWindow()
-        self.add_recipe_view.show()
-
-
-        print("Top-bar Add clicked -- open New Recipe dialog here")
+        self.add_recipe_requested.emit()
 
     def _on_card_add(self, title: str):
         """Green Add button on a card -- override or connect externally."""

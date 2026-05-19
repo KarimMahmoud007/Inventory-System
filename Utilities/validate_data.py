@@ -1,33 +1,25 @@
 from datetime import datetime
+from models.entities import StockItem
 
-def validate_data(data):
+def validate_data(item: StockItem) -> bool:
     try:
-        # Strings
-        field0 = str(data[0]).strip()
+        name = item.name.strip()
+        unit = item.unit_id
+        price = float(item.price)
+        prod = datetime.strptime(item.production_date, "%Y-%m-%d") if item.production_date else None
+        exp = datetime.strptime(item.expiration_date, "%Y-%m-%d")
+        qty = float(item.quantity)
 
-        # Unit ID (int from QComboBox)
-        field1 = int(data[1])
-
-        # Numbers
-        field2 = float(data[2]) if data[2] != '' else 0.0
-        field5 = float(data[5]) if data[5] != '' else 0.0
-
-        # Dates (IMPORTANT)
-        field3 = datetime.strptime(data[3], "%Y-%m-%d") if data[3] != '' else None
-        field4 = datetime.strptime(data[4], "%Y-%m-%d")
-
-        # Validation
-        if (
-            field0 != "" and
-            field1 >= 1 and
-            field2 >= 0 and
-            field3 is not None and
-            field3 < field4 and
-            field5 >= 0
-        ):
+        if name and unit >= 1 and price >= 0 and prod is not None and prod < exp and qty >= 0:
             return True
-        else:
-            return False
+        return False
 
-    except (ValueError, IndexError):
+    except (ValueError, TypeError):
+        return False
+
+
+def validate_recipe_item(amount: float) -> bool:
+    try:
+        return amount > 0
+    except (ValueError, TypeError):
         return False

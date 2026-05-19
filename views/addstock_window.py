@@ -2,14 +2,15 @@ from PySide6.QtCore import QDate, Signal
 from PySide6.QtWidgets import QWidget, QDateEdit, QLineEdit, QFormLayout, QPushButton, QComboBox
 from enum import Enum
 from Utilities.utilities import get_units
+from models.entities import StockItem
 
 class StockMode(Enum):
     INSERT = 1
     UPDATE = 2
 
 class AddStockWindow(QWidget):
-    stock_item_data_signal = Signal(list)
-    stock_item_update_data = Signal(list)
+    stock_item_data_signal = Signal(StockItem)
+    stock_item_update_data = Signal(StockItem)
 
     def __init__(self, mode):
         super().__init__()
@@ -25,7 +26,6 @@ class AddStockWindow(QWidget):
         }
 
         self.entries = {}
-        self.data = []
 
         layout = QFormLayout()
 
@@ -58,37 +58,19 @@ class AddStockWindow(QWidget):
             self.on_update_clicked()
 
     def on_insert_clicked(self):
-        wrapped_data = self.wrap_data()
-        self.stock_item_data_signal.emit(wrapped_data)
+        self.stock_item_data_signal.emit(self.wrap_data())
 
     def on_update_clicked(self):
-        wrapped_data = self.wrap_data()
-        self.stock_item_update_data.emit(wrapped_data)
+        self.stock_item_update_data.emit(self.wrap_data())
 
-    def load_data(self, stock_item):
-        widgets = list(self.entries.values())
 
-        for widget, value in zip(widgets, stock_item):
 
-            if isinstance(widget, QDateEdit):
-                date = QDate.fromString(value, "yyyy-MM-dd")
-                widget.setDate(date)
-
-            elif isinstance(widget, QComboBox):
-                idx = widget.findText(str(value))
-                if idx >= 0:
-                    widget.setCurrentIndex(idx)
-
-            else:
-                widget.setText(str(value))
-
-    def wrap_data(self):
-        self.data = []
-        for widget in self.entries.values():
-            if isinstance(widget, QDateEdit):
-                self.data.append(widget.date().toString("yyyy-MM-dd"))
-            elif isinstance(widget, QComboBox):
-                self.data.append(widget.currentData())
-            else:
-                self.data.append(widget.text())
-        return self.data
+    def wrap_data(self) -> StockItem:
+        return StockItem(
+            name=self.entries["Name"].text(),
+            unit_id=self.entries["Unit"].currentData(),
+            price=float(self.entries["Price"].text()),
+            production_date=self.entries["Production Date"].date().toString("yyyy-MM-dd"),
+            expiration_date=self.entries["Expiration Date"].date().toString("yyyy-MM-dd"),
+            quantity=float(self.entries["Quantity"].text()),
+        )

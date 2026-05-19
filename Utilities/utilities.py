@@ -50,7 +50,7 @@ def get_catalog():
     query.exec("SELECT id, name FROM stock")
     catalog = []
     while query.next():
-        catalog.append(query.value(1))
+        catalog.append((query.value(0), query.value(1)))
     return catalog
 
 if __name__ == '__main__':
