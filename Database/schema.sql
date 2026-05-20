@@ -8,41 +8,48 @@ CREATE TABLE IF NOT EXISTS units (
 INSERT OR IGNORE INTO units (id, name) VALUES
 (1, 'kg'), (2, 'mL'), (3, 'L'), (4, 'g');
 
+
 CREATE TABLE IF NOT EXISTS stock (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
-    unit_of_measure INTEGER NOT NULL REFERENCES units(id),
+    unit_of_measure INTEGER NOT NULL REFERENCES units(id)
+);
+
+
+CREATE TABLE IF NOT EXISTS stock_batch (
+    id INTEGER PRIMARY KEY,
+    stock_id INTEGER NOT NULL REFERENCES stock(id),
     price NUMERIC NOT NULL,
     production_date TEXT,
     expiration_date TEXT,
-    quantity NUMERIC NOT NULL
+    quantity NUMERIC NOT NULL,
+    status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'out_of_stock')),
+    added_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS items(
+CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     available INTEGER,
     price NUMERIC NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS items_recipe(
+
+CREATE TABLE IF NOT EXISTS items_recipe (
     id INTEGER PRIMARY KEY,
-    item_id INTEGER NOT NULL,
-    stock_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL REFERENCES items(id),
+    stock_id INTEGER NOT NULL REFERENCES stock(id),
     amount NUMERIC NOT NULL,
-    unit INTEGER NOT NULL REFERENCES units(id),
-    FOREIGN KEY (item_id) REFERENCES items(id),
-    FOREIGN KEY (stock_id) REFERENCES stock(id)
+    unit INTEGER NOT NULL REFERENCES units(id)
 );
+
 
 CREATE TABLE IF NOT EXISTS wasted_stock (
     id INTEGER PRIMARY KEY,
-    stock_id INTEGER NOT NULL,
+    stock_batch_id INTEGER NOT NULL REFERENCES stock_batch(id),
     wasted_amount NUMERIC NOT NULL,
     unit INTEGER NOT NULL REFERENCES units(id),
     price NUMERIC NOT NULL,
     waste_type TEXT NOT NULL,
-    FOREIGN KEY (stock_id) REFERENCES stock(id)
+    wasted_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-
-

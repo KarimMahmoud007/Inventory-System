@@ -1,21 +1,29 @@
 from PySide6.QtCore import QDate, Signal
 from PySide6.QtWidgets import (
     QWidget, QDateEdit, QLineEdit, QFormLayout,
-    QPushButton, QComboBox, QVBoxLayout, QHBoxLayout
+    QPushButton, QComboBox, QVBoxLayout, QHBoxLayout, QMessageBox
 )
 from enum import Enum
+from models.entities import Recipe
 
-from Utilities.utilities import create_QtConnection, get_units, get_catalog
+
+class RecipeMode(Enum):
+    INSERT = 1
+    EDIT = 2
 
 
 class AddRecipeWindow(QWidget):
 
     recipe_submitted = Signal(str, float, list)
+    recipe_edit_submitted = Signal(int, str, float, list)
 
-    def __init__(self):
+    def __init__(self, mode, catalog, units):
         super().__init__()
+        self.mode = mode
+        self.catalog = catalog
+        self.units = units
 
-        self.ingredient_rows: list[tuple[QComboBox, QLineEdit, QComboBox]] = []
+        self.ingredient_rows: list[tuple[int | None, QComboBox, QLineEdit, QComboBox]] = []
 
         # Main layout
         self.main_layout = QVBoxLayout()
@@ -31,10 +39,6 @@ class AddRecipeWindow(QWidget):
         self.recipe_price_edit = QLineEdit()
         self.form_layout.addRow("Recipe Price", self.recipe_price_edit)
 
-        # Pre-populated combos for ingredient rows
-        self.catalog = get_catalog()
-        self.units = get_units()
-
         self.main_layout.addLayout(self.form_layout)
 
         # Bottom layout (for buttons)
@@ -44,10 +48,10 @@ class AddRecipeWindow(QWidget):
         # "+" button
         self.addBtn = QPushButton("+")
         self.addBtn.setFixedSize(40, 40)
-        self.addBtn.clicked.connect(self.add_ingredient)
+        self.addBtn.clicked.connect(self._on_add_ingredient_clicked)
 
         self.submitBtn = QPushButton("Submit")
-        self.submitBtn.clicked.connect(self.submit_recipe)
+        self.submitBtn.clicked.connect(self._on_submit_recipe_clicked)
 
         self.bottom_layout.addWidget(self.addBtn)
         self.bottom_layout.addWidget(self.submitBtn)
@@ -57,7 +61,7 @@ class AddRecipeWindow(QWidget):
         self.setLayout(self.main_layout)
         self.setWindowTitle("Add Recipe Window")
 
-    def add_ingredient(self):
+    def _on_add_ingredient_clicked(self):
         ingredient_combo = QComboBox()
         for item_id, item_name in self.catalog:
             ingredient_combo.addItem(item_name, item_id)
@@ -68,20 +72,58 @@ class AddRecipeWindow(QWidget):
         for unit_id, unit_name in self.units:
             unit_combo.addItem(unit_name, unit_id)
 
-        self.ingredient_rows.append((ingredient_combo, quantity_edit, unit_combo))
+        self.ingredient_rows.append((None, ingredient_combo, quantity_edit, unit_combo))
 
         self.form_layout.addRow("Ingredient", ingredient_combo)
         self.form_layout.addRow("Quantity", quantity_edit)
         self.form_layout.addRow("Unit", unit_combo)
 
-    def submit_recipe(self):
+    def _on_submit_recipe_clicked(self):
         name = self.recipe_name_edit.text()
         price = float(self.recipe_price_edit.text())
         items = []
-        for ing_combo, qty_edit, unit_combo in self.ingredient_rows:
+        for ir_id, ing_combo, qty_edit, unit_combo in self.ingredient_rows:
             items.append((
+                ir_id,
                 ing_combo.currentData(),
                 float(qty_edit.text()),
                 unit_combo.currentData()
             ))
-        self.recipe_submitted.emit(name, price, items)
+        if self.mode == RecipeMode.EDIT:
+            self.recipe_edit_submitted.emit(self._editing_id, name, price, items)
+        else:
+            self.recipe_submitted.emit(name, price, items)
+
+    def load_data(self, recipe: Recipe):
+        self._editing_id = recipe.id
+        self.recipe_name_edit.setText(recipe.name)
+        self.recipe_price_edit.setText(str(recipe.price))
+
+        for ri in recipe.recipe_items:
+            ingredient_combo = QComboBox()
+            for item_id, item_name in self.catalog:
+                ingredient_combo.addItem(item_name, item_id)
+            for i in range(ingredient_combo.count()):
+                if ingredient_combo.itemData(i) == ri.stock_id:
+                    ingredient_combo.setCurrentIndex(i)
+                    break
+
+            quantity_edit = QLineEdit()
+            quantity_edit.setText(str(ri.amount))
+
+            unit_combo = QComboBox()
+            for unit_id, unit_name in self.units:
+                unit_combo.addItem(unit_name, unit_id)
+            for i in range(unit_combo.count()):
+                if unit_combo.itemData(i) == ri.unit_id:
+                    unit_combo.setCurrentIndex(i)
+                    break
+
+            self.ingredient_rows.append((ri.id, ingredient_combo, quantity_edit, unit_combo))
+
+            self.form_layout.addRow("Ingredient", ingredient_combo)
+            self.form_layout.addRow("Quantity", quantity_edit)
+            self.form_layout.addRow("Unit", unit_combo)
+
+    def show_warning(self, title: str, message: str):
+        QMessageBox.warning(self, title, message)

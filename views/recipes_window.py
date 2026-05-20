@@ -1,14 +1,13 @@
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QLabel, QPushButton,
+    QWidget, QLabel, QPushButton,
     QScrollArea, QGridLayout, QVBoxLayout,
-    QHBoxLayout, QFrame, QSizePolicy
+    QHBoxLayout, QFrame
 )
 from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QFont, QColor, QPalette, QIcon
-import sys
 
 
-# ------------------------------------------------------------------ #
+
+# ----------------------------------------------------------------- #
 #  Single Recipe Card
 # ------------------------------------------------------------------ #
 class RecipeCard(QFrame):
@@ -17,15 +16,16 @@ class RecipeCard(QFrame):
 
     Signals
     -------
-    add_clicked(title: str)   -- user pressed the green Add button
-    edit_clicked(title: str)  -- user pressed the orange Edit button
+    add_clicked(id: int)   -- user pressed the green Add button
+    edit_clicked(id: int)  -- user pressed the orange Edit button
     """
 
-    add_clicked  = Signal(str)
-    edit_clicked = Signal(str)
+    add_clicked  = Signal(int)
+    edit_clicked = Signal(int)
 
-    def __init__(self, title: str = "", ingredients: list[str] | None = None, parent=None):
+    def __init__(self, id: int = 0, title: str = "", ingredients: list[str] | None = None, parent=None):
         super().__init__(parent)
+        self.id = id
         self.title       = title
         self.ingredients = ingredients or []
         self._build_ui()
@@ -85,14 +85,14 @@ class RecipeCard(QFrame):
         self.add_btn.setFixedHeight(26)
         self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.add_btn.setToolTip("Add this recipe")
-        self.add_btn.clicked.connect(lambda: self.add_clicked.emit(self.title))
+        self.add_btn.clicked.connect(lambda: self.add_clicked.emit(self.id))
 
         self.edit_btn = QPushButton("/ Edit")
         self.edit_btn.setObjectName("cardEditBtn")
         self.edit_btn.setFixedHeight(26)
         self.edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_btn.setToolTip("Edit this recipe")
-        self.edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self.title))
+        self.edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self.id))
 
         footer_layout.addWidget(self.add_btn)
         footer_layout.addWidget(self.edit_btn)
@@ -193,6 +193,7 @@ class RecipesPage(QWidget):
     """
 
     add_recipe_requested = Signal()
+    edit_recipe_requested = Signal(int)
 
     COLUMNS      = 4
     CARD_SPACING = 18
@@ -263,6 +264,7 @@ class RecipesPage(QWidget):
 
         for i, recipe in enumerate(self.recipes):
             card = RecipeCard(
+                id = recipe["id"],
                 title=recipe.get("title", ""),
                 ingredients=recipe.get("ingredients", [])
             )
@@ -325,13 +327,13 @@ class RecipesPage(QWidget):
     def _on_add_clicked(self):
         self.add_recipe_requested.emit()
 
-    def _on_card_add(self, title: str):
+    def _on_card_add(self, id: int):
         """Green Add button on a card -- override or connect externally."""
-        print(f"Card Add: '{title}'")
+        print(f"Card Add: '{id}'")
 
-    def _on_card_edit(self, title: str):
+    def _on_card_edit(self, id: int):
         """Orange Edit button on a card -- override or connect externally."""
-        print(f"Card Edit: '{title}'")
+        self.edit_recipe_requested.emit(id)
 
     # -- public API ----------------------------------------------------
     def set_recipes(self, recipes: list[dict]):
@@ -344,24 +346,3 @@ class RecipesPage(QWidget):
         self.recipes.append(recipe)
         self._populate_cards()
 
-
-# ------------------------------------------------------------------ #
-#  Demo entry-point
-# ------------------------------------------------------------------ #
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
-    sample_recipes = [
-        {"title": "Pasta Carbonara",  "ingredients": ["Spaghetti", "Eggs", "Pancetta", "Pecorino"]},
-        {"title": "Greek Salad",      "ingredients": ["Tomatoes", "Cucumber", "Olives", "Feta"]},
-        {"title": "Lemon Chicken",    "ingredients": ["Chicken", "Lemon", "Garlic", "Thyme"]},
-        {"title": "Banana Bread",     "ingredients": ["Bananas", "Flour", "Sugar", "Butter"]},
-        {"title": "Veggie Stir Fry",  "ingredients": ["Broccoli", "Peppers", "Tofu", "Soy Sauce"]},
-        {"title": "Chocolate Cake",   "ingredients": ["Cocoa", "Flour", "Eggs", "Cream"]},
-        {"title": "Mushroom Risotto", "ingredients": ["Arborio Rice", "Mushrooms", "Parmesan", "White Wine"]},
-    ]
-
-    window = RecipesPage(recipes=sample_recipes)
-    window.show()
-    sys.exit(app.exec())

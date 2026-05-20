@@ -1,9 +1,14 @@
 from PySide6.QtCore import QObject
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QStackedWidget
+
 from models.stock_model import StockModel
+from models.stock_batch_model import StockBatchModel
 from views.stock_window import StockWindow
-from views.addstock_window import AddStockWindow
-from Utilities.validate_data import *
+from views.stock_batch_window import StockBatchWindow
+from views.add_stock_item_window import AddStockItemWindow, StockMode
+from views.add_batch_window import AddBatchWindow, BatchMode
+from models.entities import StockItem, StockBatch
+from Utilities.validate_data import validate_stock_item, validate_stock_batch
 
 
 class StockController(QObject):
@@ -11,56 +16,131 @@ class StockController(QObject):
     def __init__(self):
         super().__init__()
 
-        self.add_stock_window = None
+        self.stack = QStackedWidget()
+        self.add_item_window = None
+        self.add_batch_window = None
+        self.batch_view = None
+        self.batch_model_instance = None
 
-        self.model = StockModel()
+        # ---- Level 1: Stock items ----
+        self.stock_model = StockModel()
+        self.table_model = self.stock_model.get_stock_model()
+        self.item_view = StockWindow(self.table_model)
+        self.stack.addWidget(self.item_view)
 
-        self.table_model = self.model.get_stock_model()
+        self.item_view.add_item_requested.connect(self.open_add_item_window)
+        self.item_view.edit_item_requested.connect(self.open_edit_item_window)
+        self.item_view.delete_item_requested.connect(self.delete_item)
+        self.item_view.view_batches_requested.connect(self.open_batch_window)
 
-        self.stock_view = StockWindow(self.table_model)
+        self.stock_view = self.stack
 
-        self.stock_view.insert_request_signal.connect(self.open_add_stock_window)
+    # ──────────────────────────────────────────────
+    #  Item operations
+    # ──────────────────────────────────────────────
 
-        self.stock_view.delete_request_signal.connect(self.delete_item)
+    def open_add_item_window(self):
+        self.add_item_window = AddStockItemWindow(StockMode.INSERT.value, units=self.stock_model.units)
+        self.add_item_window.show()
+        self.add_item_window.stock_item_data_signal.connect(self.handle_add_item)
+        self.stock_model.item_inserted_successfully.connect(self.add_item_window.close)
 
-        self.stock_view.edit_request_signal.connect(self.open_edit_stock_window)
-
-    #ADD STOCK START
-    def open_add_stock_window(self):
-        self.add_stock_window = AddStockWindow(1)
-        self.add_stock_window.show()
-
-        self.add_stock_window.stock_item_data_signal.connect(self.handle_add_stock_request)
-
-        self.model.item_inserted_successfully.connect(self.add_stock_window.close)
-
-    def handle_add_stock_request(self, data):
-        if validate_data(data):
-            self.model.insert_stock_item(data)
+    def handle_add_item(self, data):
+        if validate_stock_item(data):
+            self.stock_model.insert_stock_item(data)
         else:
-            QMessageBox.warning(self.add_stock_window, "Validation Error", "Please fill all fields correctly.")
-    #ADD STOCK END
+            self.add_item_window.show_warning("Validation Error", "Name is required and unit must be selected.")
 
-    #EDIT STOCK START
-    def open_edit_stock_window(self, selected_row):
-        stock_item = self.model.get_stock_item(selected_row)
-        self.add_stock_window = AddStockWindow(2)
-        self.add_stock_window.load_data(stock_item)
-        self.add_stock_window.show()
+    def open_edit_item_window(self, item_id: int):
+        item = self.stock_model.get_stock_item(item_id)
+        if item is None:
+            return
 
-        self.add_stock_window.stock_item_update_data.connect(
-            lambda value: self.handle_edit_stock_request(value, selected_row)
+        self.add_item_window = AddStockItemWindow(StockMode.UPDATE.value, units=self.stock_model.units)
+        self.add_item_window.load_data(item)
+        self.add_item_window.show()
+        self.add_item_window.stock_item_update_data.connect(self.handle_edit_item)
+        self.stock_model.item_updated_successfully.connect(self.add_item_window.close)
+
+    def handle_edit_item(self, data):
+        if validate_stock_item(data):
+            self.stock_model.update_stock_item(data)
+        else:
+            self.add_item_window.show_warning("Validation Error", "Name is required and unit must be selected.")
+
+    def delete_item(self, item_id: int):
+        self.stock_model.delete_stock_item(item_id)
+
+    # ──────────────────────────────────────────────
+    #  Batch operations
+    # ──────────────────────────────────────────────
+
+    def open_batch_window(self, stock_id):
+        if self.batch_view is not None:
+            self.stack.removeWidget(self.batch_view)
+            self.batch_view.deleteLater()
+            self.batch_view = None
+            self.batch_model_instance = None
+
+        stock_name = self.stock_model.get_stock_name(stock_id)
+        self.batch_model_instance = StockBatchModel()
+        batch_model = self.batch_model_instance.get_batch_model(stock_id)
+        self.batch_view = StockBatchWindow(stock_id, stock_name, batch_model)
+
+        self.batch_view.back_requested.connect(self.close_batch_window)
+        self.batch_view.add_batch_requested.connect(self.open_add_batch_window)
+        self.batch_view.edit_batch_requested.connect(self.open_edit_batch_window)
+        self.batch_view.delete_batch_requested.connect(self.delete_batch)
+        self.batch_view.toggle_status_requested.connect(self.toggle_batch_status)
+
+        self.stack.addWidget(self.batch_view)
+        self.stack.setCurrentWidget(self.batch_view)
+
+    def close_batch_window(self):
+        self.stack.setCurrentWidget(self.item_view)
+        if self.batch_view is not None:
+            self.stack.removeWidget(self.batch_view)
+            self.batch_view.deleteLater()
+            self.batch_view = None
+            self.batch_model_instance = None
+
+    def open_add_batch_window(self):
+        self.add_batch_window = AddBatchWindow(BatchMode.INSERT.value)
+        self.add_batch_window.show()
+        self.add_batch_window.batch_data_signal.connect(self.handle_add_batch)
+        self.batch_model_instance.batch_inserted_successfully.connect(
+            self.add_batch_window.close
         )
-        self.model.item_updated_successfully.connect(self.add_stock_window.close)
 
-    def handle_edit_stock_request(self, wrapped_data, selected_row):
-        if validate_data(wrapped_data):
-            self.model.update_stock_item(wrapped_data, selected_row)
+    def handle_add_batch(self, data: StockBatch):
+        if validate_stock_batch(data):
+            data.stock_id = self.batch_view.stock_id
+            self.batch_model_instance.insert_batch(data)
         else:
-            QMessageBox.warning(self.add_stock_window, "Update Error", "Please fill all fields correctly.")
-    #EDIT STOCK END
+            self.add_batch_window.show_warning("Validation Error", "Price and quantity must be positive, expiration must be after production date.")
 
-    #DELETE STOCK START
-    def delete_item(self, selected_list):
-        self.model.delete_stock_item(selected_list)
-    #DELETE STOCK END
+    def open_edit_batch_window(self, batch_id: int):
+        batch = self.batch_model_instance.get_batch(batch_id)
+        if batch is None:
+            return
+
+        self.add_batch_window = AddBatchWindow(BatchMode.UPDATE.value)
+        self.add_batch_window.load_data(batch)
+        self.add_batch_window.show()
+        self.add_batch_window.batch_update_data.connect(self.handle_edit_batch)
+        self.batch_model_instance.batch_updated_successfully.connect(
+            self.add_batch_window.close
+        )
+
+    def handle_edit_batch(self, data: StockBatch):
+        if validate_stock_batch(data):
+            data.stock_id = self.batch_view.stock_id
+            self.batch_model_instance.update_batch(data)
+        else:
+            self.add_batch_window.show_warning("Validation Error", "Price and quantity must be positive, expiration must be after production date.")
+
+    def delete_batch(self, batch_id: int):
+        self.batch_model_instance.delete_batch(batch_id)
+
+    def toggle_batch_status(self, batch_id: int):
+        self.batch_model_instance.toggle_status(batch_id)

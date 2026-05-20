@@ -1,0 +1,86 @@
+INVENTORY MANAGEMENT SYSTEM — PROJECT BRIEF
+==============================================
+
+STACK:
+  - Python 3.x + PySide6 (Qt for Python)
+  - SQLite3 (via QSqlDatabase/QSqlRelationalTableModel and QSqlQuery)
+
+ARCHITECTURE PATTERN: Modified MVC (Model-View-Controller)
+  Models  → database CRUD logic (QSqlRelationalTableModel or raw QSqlQuery)
+  Views   → PySide6 QWidget subclasses (UI + signals)
+  Controllers → business logic, signal wiring between model & view
+  The main_window.py serves as a "front controller" that wires sidebar navigation.
+
+FILE STRUCTURE:
+  Inventory/
+  ├── main.py                        # Quick DB inspector — prints table names (utility, NOT app entry)
+  ├── main_window.py                 # APP ENTRY POINT — QMainWindow with sidebar + QStackedWidget
+  ├── brief.txt                      # This file
+  ├── README.md
+  ├── .gitignore / .idea/            # IDE config
+  ├── qt-env/.venv/                  # Python virtual environments
+  ├── Database/
+  │   ├── schema.sql                 # DDL for all tables
+  │   ├── Inventory.db               # SQLite database file
+  │   └── main_database.py           # Runs schema.sql (splits statements for FK support + seed data)
+  ├── models/
+  │   ├── base_model.py              # BaseModel(QObject) — _shared_db singleton, properties (units/catalog/recipes_catalog) delegating to @staticmethod @lru_cache, invalidate_* methods
+  │   ├── entities.py                # Dataclasses: StockItem, StockBatch, RecipeItem, Recipe
+  │   ├── stock_model.py             # Stock item CRUD — insert via QSqlRelationalTableModel, get/update/delete via QSqlQuery by PK, extends BaseModel
+  │   ├── stock_batch_model.py       # Stock batch CRUD — insert via QSqlTableModel, get/update/delete/toggle via QSqlQuery by PK, extends BaseModel
+  │   └── recipes_model.py           # Recipes — save_recipe/get_recipe/update_recipe with transaction, cache clears via invalidate_*(), extends BaseModel
+  ├── views/
+  │   ├── home_window.py             # Home page (placeholder QLabel)
+  │   ├── stock_window.py            # Level 1 item list: QTableView with right-click (View Batches/Edit/Delete), signals emit PK (int), uses _get_item_id(row)
+  │   ├── stock_batch_window.py      # Level 2 batch table: filtered by stock_id, header "{name} batches", right-click (Edit/Toggle/Delete), Back button, signals emit PK (int)
+  │   ├── add_stock_item_window.py   # Form: Name + Unit QComboBox, INSERT/UPDATE modes, StockMode enum
+  │   ├── add_batch_window.py        # Form: Price + Dates + Quantity QDateEdit/QLineEdit, INSERT/UPDATE modes, BatchMode enum
+  │   ├── recipes_window.py          # Recipe cards in QGridLayout, add_recipe_requested + edit_recipe_requested signals, RecipeCard emits id: int
+  │   ├── add_recipe_window.py       # Add recipe form: dynamic ingredient rows, INSERT/EDIT modes, emits recipe_submitted or recipe_edit_submitted
+  │   ├── staff_window.py            # Staff page (placeholder)
+  │   └── test_window.py             # Test page (placeholder)
+  ├── controllers/
+  │   ├── stock_controller.py        # Two-level orchestration: internal QStackedWidget, Level 1 = items, Level 2 = batches, swaps pages on View Batches / Back, all operations pass PKs to models
+  │   └── recipes_controller.py      # Owns both views, handles validation, entity construction, save orchestration, refreshes cards on save, passes model.catalog+model.units to AddRecipeWindow
+  └── Utilities/
+      ├── utilities.py               # create_QtConnection() [QSqlDatabase singleton with relative path], create_connection() [sqlite3 for schema init]
+      └── validate_data.py           # validate_data() for stock form fields + validate_recipe_item(amount) returns bool
+
+DATABASE SCHEMA (schema.sql):
+  stock          — id, name, unit_of_measure (FK→units.id)  (product definitions, no batch data)
+  stock_batch    — id, stock_id (FK→stock.id), price, production_date, expiration_date, quantity, status (available/out_of_stock), added_at
+  items          — id, name, available, price  (finished products/recipes)
+  items_recipe   — id, item_id (FK→items.id), stock_id (FK→stock.id), amount, unit (FK→units.id)  (recipe ingredient link)
+  wasted_stock   — id, stock_batch_id (FK→stock_batch.id), wasted_amount, unit (FK→units.id), price, waste_type, wasted_at
+  units          — id, name (seed: kg, mL, L, g)  (reference)
+
+Seeded data: units → [(1,'kg'), (2,'mL'), (3,'L'), (4,'g')]
+
+KEY PATTERNS / CONVENTIONS:
+  1. Signal-based communication  (views emit signals → controllers handle → models update)
+  2. QSqlRelationalTableModel + QTableView for stock items (FK display via setRelation)
+  3. QSqlTableModel + QTableView for stock batches (filtered by stock_id)
+  4. QSqlQuery for custom queries (recipes catalog, recipe get/update)
+  5. Named singleton DB connection via create_QtConnection() / QSqlDatabase::contains()
+  6. QStackedWidget sidebar navigation (MainWindow.page_map dict)
+  7. Controller-internal QStackedWidget for two-level stock navigation (items → batches)
+  8. ObjectName-based Qt stylesheets for custom widget styling
+  9. StockMode/BatchMode/RecipeMode enums to control form behavior (INSERT vs UPDATE/EDIT)
+ 10. No .ui files — all UI created programmatically in Python
+ 11. Cached data in BaseModel: @staticmethod @lru_cache get_units()/get_catalog()/get_recipes_catalog(), instance properties that read from cache, invalidate_*() methods to refresh
+ 12. Dataclass entities (StockItem, StockBatch, RecipeItem, Recipe) for type safety across signals, models, validation, and forms
+ 13. Views expose show_warning(title, message) — controllers call it instead of QMessageBox directly
+ 14. Views receive data via constructor params (injected by controller) — no direct imports of cached functions from utilities or models
+ 15. Transactional recipe save/update (db.transaction + commit/rollback)
+  16. Recipe update: UPDATE items header, UPSERT items_recipe rows by id (UPDATE existing, INSERT new, DELETE removed)
+  17. All destructive/edit operations use PK-based QSqlQuery (WHERE id = ?) instead of row-index-based model access — safe under any sorting/filtering
+
+MAINTENANCE:
+  THIS FILE MUST BE UPDATED whenever any edit, addition, or removal is made to the project
+  (files, structure, patterns, dependencies, schema, etc.) to keep it accurate for every session.
+
+KNOWN ISSUES / TODOs:
+  - No requirements.txt / pyproject.toml
+  - No type hints in models/controllers
+  - Error handling is minimal (most errors just printed to console)
+  - validate_data.py has dead code (no longer imported after stock_controller rewrite) — references old StockItem fields

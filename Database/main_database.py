@@ -1,3 +1,4 @@
+from pathlib import Path
 from Utilities.utilities import create_connection
 
 
@@ -7,7 +8,8 @@ if __name__ == "__main__":
 
     cur.execute("PRAGMA foreign_keys = ON;")
 
-    with open("schema.sql", 'r') as file:
+    schema_path = Path(__file__).parent / "schema.sql"
+    with open(schema_path, 'r') as file:
         sql_script = file.read()
 
     statements = [s.strip() for s in sql_script.split(';') if s.strip()]
