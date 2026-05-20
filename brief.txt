@@ -80,7 +80,7 @@ MAINTENANCE:
   (files, structure, patterns, dependencies, schema, etc.) to keep it accurate for every session.
 
 KNOWN ISSUES / TODOs:
-  - No requirements.txt / pyproject.toml
+  - No pyproject.toml
   - No type hints in models/controllers
   - Error handling is minimal (most errors just printed to console)
   - validate_data.py has dead code (no longer imported after stock_controller rewrite) — references old StockItem fields
