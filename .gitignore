@@ -6,3 +6,5 @@ __pycache__/
 Utilities/__pycache__/
 models/__pycache__/
 views/__pycache__/
+
+*.py[cod]
