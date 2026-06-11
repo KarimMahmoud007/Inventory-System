@@ -8,6 +8,8 @@ class StockModel(BaseModel):
     item_inserted_successfully = Signal()
     item_updated_successfully = Signal()
     item_deleted_successfully = Signal()
+    item_insert_rejected = Signal(str)
+    item_delete_rejected = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -26,7 +28,20 @@ class StockModel(BaseModel):
             return query.value(0)
         return ""
 
+    def _stock_name_exists(self, name: str) -> bool:
+        query = QSqlQuery(self.db)
+        query.prepare("SELECT 1 FROM stock WHERE name = ? COLLATE NOCASE LIMIT 1")
+        query.addBindValue(name.strip())
+        query.exec()
+        return query.next()
+
     def insert_stock_item(self, item: StockItem):
+        if self._stock_name_exists(item.name):
+            self.item_insert_rejected.emit(
+                f"A stock item named '{item.name.strip()}' already exists."
+            )
+            return
+
         row = self.model.rowCount()
         self.model.insertRow(row)
         self.model.setData(self.model.index(row, 1), item.name)
@@ -35,7 +50,9 @@ class StockModel(BaseModel):
         if not self.model.submitAll():
             print("Submit failed:", self.model.lastError().text())
         else:
+            self.model.select()
             self.invalidate_catalog()
+            self.model.refresh()
             self.item_inserted_successfully.emit()
 
     def get_stock_item(self, item_id: int) -> StockItem | None:
@@ -60,6 +77,7 @@ class StockModel(BaseModel):
         if not query.exec():
             print("Update failed:", query.lastError().text())
         else:
+            self.model.select()
             self.invalidate_catalog()
             self.model.refresh()
             self.item_updated_successfully.emit()
@@ -69,8 +87,15 @@ class StockModel(BaseModel):
         query.prepare("DELETE FROM stock WHERE id=?")
         query.addBindValue(item_id)
         if not query.exec():
-            print("Delete failed:", query.lastError().text())
+            if query.lastError().nativeErrorCode() in ("787", "19"):
+                self.item_delete_rejected.emit(
+                    "Cannot delete this stock item because it still has batches. "
+                    "Delete its batches first."
+                )
+            else:
+                print("Delete failed:", query.lastError().text())
         else:
+            self.model.select()
             self.invalidate_catalog()
             self.model.refresh()
             self.item_deleted_successfully.emit()

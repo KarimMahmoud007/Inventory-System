@@ -80,12 +80,7 @@ class RecipeCard(QFrame):
         footer_layout.setContentsMargins(8, 5, 8, 5)
         footer_layout.setSpacing(8)
 
-        self.add_btn = QPushButton("+ Add")
-        self.add_btn.setObjectName("cardAddBtn")
-        self.add_btn.setFixedHeight(26)
-        self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_btn.setToolTip("Add this recipe")
-        self.add_btn.clicked.connect(lambda: self.add_clicked.emit(self.id))
+
 
         self.edit_btn = QPushButton("/ Edit")
         self.edit_btn.setObjectName("cardEditBtn")
@@ -94,7 +89,7 @@ class RecipeCard(QFrame):
         self.edit_btn.setToolTip("Edit this recipe")
         self.edit_btn.clicked.connect(lambda: self.edit_clicked.emit(self.id))
 
-        footer_layout.addWidget(self.add_btn)
+
         footer_layout.addWidget(self.edit_btn)
 
         root.addWidget(self.header)
@@ -138,17 +133,6 @@ class RecipeCard(QFrame):
                 border-top: 1px solid #E8C4B0;
                 border-bottom-left-radius:  8px;
                 border-bottom-right-radius: 8px;
-            }
-
-            QPushButton#cardAddBtn {
-                font-family: Georgia;
-                font-size: 10px;
-                font-weight: bold;
-                color: #FFFFFF;
-                background: #2E9E5B;
-                border: none;
-                border-radius: 5px;
-                padding: 0 6px;
             }
             QPushButton#cardAddBtn:hover   { background: #27874E; }
             QPushButton#cardAddBtn:pressed { background: #1E6B3E; }
@@ -279,7 +263,7 @@ class RecipesPage(QWidget):
         if remainder:
             for j in range(self.COLUMNS - remainder):
                 ghost = RecipeCard()
-                ghost.add_btn.hide()
+
                 ghost.edit_btn.hide()
                 self.card_grid.addWidget(
                     ghost, total // self.COLUMNS, remainder + j

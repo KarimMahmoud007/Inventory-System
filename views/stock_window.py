@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableView, QHeaderView, QPushButton, QAbstractItemView, QMenu
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableView, QHeaderView, QPushButton, QAbstractItemView, QMenu, QMessageBox
 
 
 class StockWindow(QWidget):
@@ -39,6 +39,9 @@ class StockWindow(QWidget):
 
     def _on_add_clicked(self):
         self.add_item_requested.emit()
+
+    def show_warning(self, title: str, message: str):
+        QMessageBox.warning(self, title, message)
 
     def show_context_menu(self, position):
         index = self.table.indexAt(position)

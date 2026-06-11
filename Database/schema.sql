@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS stock (
 
 CREATE TABLE IF NOT EXISTS stock_batch (
     id INTEGER PRIMARY KEY,
-    stock_id INTEGER NOT NULL REFERENCES stock(id),
+    stock_id INTEGER NOT NULL REFERENCES stock(id) ON DELETE RESTRICT,
     price NUMERIC NOT NULL,
     production_date TEXT,
     expiration_date TEXT,

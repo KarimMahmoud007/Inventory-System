@@ -33,6 +33,8 @@ class StockBatchModel(BaseModel):
         if not self.model.submitAll():
             print("Batch insert failed:", self.model.lastError().text())
         else:
+            self.model.select()
+            self.model.refresh()
             self.batch_inserted_successfully.emit()
 
     def get_batch(self, batch_id: int) -> StockBatch | None:
@@ -63,6 +65,7 @@ class StockBatchModel(BaseModel):
         if not query.exec():
             print("Batch update failed:", query.lastError().text())
         else:
+            self.model.select()
             self.model.refresh()
             self.batch_updated_successfully.emit()
 
@@ -73,6 +76,7 @@ class StockBatchModel(BaseModel):
         if not query.exec():
             print("Batch delete failed:", query.lastError().text())
         else:
+            self.model.select()
             self.model.refresh()
             self.batch_deleted_successfully.emit()
 
@@ -93,5 +97,6 @@ class StockBatchModel(BaseModel):
         if not query.exec():
             print("Status toggle failed:", query.lastError().text())
         else:
+            self.model.select()
             self.model.refresh()
             self.batch_status_toggled.emit()

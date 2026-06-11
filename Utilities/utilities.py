@@ -1,6 +1,6 @@
 import sqlite3
 from pathlib import Path
-from PySide6.QtSql import QSqlDatabase
+from PySide6.QtSql import QSqlDatabase, QSqlQuery
 
 
 def create_connection():
@@ -22,5 +22,7 @@ def create_QtConnection():
         exit()
     else:
         print("Database opened successfully:", db.databaseName())
+
+    QSqlQuery(db).exec("PRAGMA foreign_keys = ON")
 
     return db

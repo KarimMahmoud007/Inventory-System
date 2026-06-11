@@ -33,6 +33,11 @@ class StockController(QObject):
         self.item_view.delete_item_requested.connect(self.delete_item)
         self.item_view.view_batches_requested.connect(self.open_batch_window)
 
+        self.stock_model.item_delete_rejected.connect(
+            lambda msg: self.item_view.show_warning("Cannot Delete", msg))
+        self.stock_model.item_insert_rejected.connect(
+            lambda msg: self.add_item_window and self.add_item_window.show_warning("Duplicate Name", msg))
+
         self.stock_view = self.stack
 
     # ──────────────────────────────────────────────

@@ -26,12 +26,12 @@ FILE STRUCTURE:
   ├── models/
   │   ├── base_model.py              # BaseModel(QObject) — _shared_db singleton, properties (units/catalog/recipes_catalog) delegating to @staticmethod @lru_cache, invalidate_* methods
   │   ├── entities.py                # Dataclasses: StockItem, StockBatch, RecipeItem, Recipe
-  │   ├── stock_model.py             # Stock item CRUD — insert via QSqlRelationalTableModel, get/update/delete via QSqlQuery by PK, extends BaseModel
+  │   ├── stock_model.py             # Stock item CRUD — insert via QSqlRelationalTableModel (rejects duplicate name), get/update/delete via QSqlQuery by PK (delete DB-restricted by batches), rejection signals, extends BaseModel
   │   ├── stock_batch_model.py       # Stock batch CRUD — insert via QSqlTableModel, get/update/delete/toggle via QSqlQuery by PK, extends BaseModel
   │   └── recipes_model.py           # Recipes — save_recipe/get_recipe/update_recipe with transaction, cache clears via invalidate_*(), extends BaseModel
   ├── views/
   │   ├── home_window.py             # Home page (placeholder QLabel)
-  │   ├── stock_window.py            # Level 1 item list: QTableView with right-click (View Batches/Edit/Delete), signals emit PK (int), uses _get_item_id(row)
+  │   ├── stock_window.py            # Level 1 item list: QTableView with right-click (View Batches/Edit/Delete), signals emit PK (int), uses _get_item_id(row), exposes show_warning()
   │   ├── stock_batch_window.py      # Level 2 batch table: filtered by stock_id, header "{name} batches", right-click (Edit/Toggle/Delete), Back button, signals emit PK (int)
   │   ├── add_stock_item_window.py   # Form: Name + Unit QComboBox, INSERT/UPDATE modes, StockMode enum
   │   ├── add_batch_window.py        # Form: Price + Dates + Quantity QDateEdit/QLineEdit, INSERT/UPDATE modes, BatchMode enum
@@ -48,7 +48,7 @@ FILE STRUCTURE:
 
 DATABASE SCHEMA (schema.sql):
   stock          — id, name, unit_of_measure (FK→units.id)  (product definitions, no batch data)
-  stock_batch    — id, stock_id (FK→stock.id), price, production_date, expiration_date, quantity, status (available/out_of_stock), added_at
+  stock_batch    — id, stock_id (FK→stock.id ON DELETE RESTRICT), price, production_date, expiration_date, quantity, status (available/out_of_stock), added_at
   items          — id, name, available, price  (finished products/recipes)
   items_recipe   — id, item_id (FK→items.id), stock_id (FK→stock.id), amount, unit (FK→units.id)  (recipe ingredient link)
   wasted_stock   — id, stock_batch_id (FK→stock_batch.id), wasted_amount, unit (FK→units.id), price, waste_type, wasted_at
@@ -74,6 +74,10 @@ KEY PATTERNS / CONVENTIONS:
  15. Transactional recipe save/update (db.transaction + commit/rollback)
   16. Recipe update: UPDATE items header, UPSERT items_recipe rows by id (UPDATE existing, INSERT new, DELETE removed)
   17. All destructive/edit operations use PK-based QSqlQuery (WHERE id = ?) instead of row-index-based model access — safe under any sorting/filtering
+ 18. FK enforcement is enabled on the Qt connection (create_QtConnection runs "PRAGMA foreign_keys = ON" after open — per-connection, so required at runtime; schema.sql's pragma only covers the sqlite3 setup connection)
+ 19. Stock delete is DB-enforced: stock_batch.stock_id is REFERENCES stock(id) ON DELETE RESTRICT. delete_stock_item lets the DELETE fail and, on FK violation (nativeErrorCode 787/19), emits item_delete_rejected(str) instead of querying for batches first
+ 20. Stock insert rejects duplicate names: insert_stock_item runs an in-code case-insensitive check (name = ? COLLATE NOCASE, trimmed) and emits item_insert_rejected(str) if a match exists
+ 21. Rejection signals (item_delete_rejected / item_insert_rejected) carry a user message; StockController wires them to view.show_warning (StockWindow now exposes show_warning; AddStockItemWindow already did)
 
 MAINTENANCE:
   THIS FILE MUST BE UPDATED whenever any edit, addition, or removal is made to the project
