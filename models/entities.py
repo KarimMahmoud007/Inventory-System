@@ -49,6 +49,8 @@ class Order:
     id: int | None = None
     created_at: str | None = None
     status: str = 'draft'
+    subtotal: float = 0.0
+    cost: float = 0.0
 
 
 @dataclass
@@ -65,3 +67,5 @@ class ValidationResult:
     ok: bool
     shortages: list[Shortage]
     errors: list[str]
+    subtotal: float = 0.0
+    est_cost: float = 0.0

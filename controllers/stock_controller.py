@@ -1,4 +1,4 @@
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QStackedWidget
 
 from models.stock_model import StockModel
@@ -12,6 +12,9 @@ from Utilities.validate_data import validate_stock_item, validate_stock_batch
 
 
 class StockController(QObject):
+
+    # Relayed to OrderController so the Order page refreshes on any stock change.
+    data_changed = Signal()
 
     def __init__(self):
         super().__init__()
@@ -37,6 +40,11 @@ class StockController(QObject):
             lambda msg: self.item_view.show_warning("Cannot Delete", msg))
         self.stock_model.item_insert_rejected.connect(
             lambda msg: self.add_item_window and self.add_item_window.show_warning("Duplicate Name", msg))
+
+        # Relay stock-item changes to the Order page.
+        self.stock_model.item_inserted_successfully.connect(self.data_changed.emit)
+        self.stock_model.item_updated_successfully.connect(self.data_changed.emit)
+        self.stock_model.item_deleted_successfully.connect(self.data_changed.emit)
 
         self.stock_view = self.stack
 
@@ -97,6 +105,13 @@ class StockController(QObject):
         self.batch_view.edit_batch_requested.connect(self.open_edit_batch_window)
         self.batch_view.delete_batch_requested.connect(self.delete_batch)
         self.batch_view.toggle_status_requested.connect(self.toggle_batch_status)
+
+        # Relay batch changes to the Order page (this instance is transient,
+        # so the connections are made here each time it's created).
+        self.batch_model_instance.batch_inserted_successfully.connect(self.data_changed.emit)
+        self.batch_model_instance.batch_updated_successfully.connect(self.data_changed.emit)
+        self.batch_model_instance.batch_deleted_successfully.connect(self.data_changed.emit)
+        self.batch_model_instance.batch_status_toggled.connect(self.data_changed.emit)
 
         self.stack.addWidget(self.batch_view)
         self.stack.setCurrentWidget(self.batch_view)

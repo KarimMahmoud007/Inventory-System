@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     status TEXT NOT NULL DEFAULT 'draft'
-        CHECK (status IN ('draft', 'placed', 'cancelled', 'fulfilled'))
+        CHECK (status IN ('draft', 'placed', 'cancelled', 'fulfilled')),
+    subtotal NUMERIC NOT NULL DEFAULT 0,
+    cost NUMERIC NOT NULL DEFAULT 0
 );
 
 

@@ -56,7 +56,7 @@ DATABASE SCHEMA (schema.sql):
   items          — id, name, available, price  (finished products/recipes)
   items_recipe   — id, item_id (FK→items.id), stock_id (FK→stock.id), amount, unit (FK→units.id)  (recipe ingredient link)
   wasted_stock   — id, stock_batch_id (FK→stock_batch.id), wasted_amount, unit (FK→units.id), price, waste_type, wasted_at
-  orders         — id, created_at, status (draft/placed/cancelled/fulfilled)  (order header)
+  orders         — id, created_at, status (draft/placed/cancelled/fulfilled), subtotal, cost  (order header; subtotal=revenue, cost=ingredient cost)
   order_items    — id, order_id (FK→orders.id ON DELETE CASCADE), item_id (FK→items.id), quantity  (one row per recipe ordered)
   units          — id, name (seed: kg, mL, L, g)  (reference)
 
@@ -89,6 +89,9 @@ KEY PATTERNS / CONVENTIONS:
  24. FIFO/oldest-batch-first deduction: OrderModel._deduct_for_order fetches each ingredient's available batches (quantity>0) ORDER BY added_at ASC, id ASC, deducts from the oldest, rolls the remainder to the next, and flips a depleted batch to status='out_of_stock'. Runs inside place_order's db.transaction() (rollback on any failure → no partial deduction).
  25. Unit conversion (Utilities/units.py): recipe ingredient amounts (items_recipe.unit) are converted into the stock item's unit_of_measure before compare/deduct. Cross-dimension (e.g. g↔L) or unknown units raise ValueError → surfaced as fail-loud errors in ValidationResult.errors (place blocked). Recipes with no items_recipe mapping also fail loudly (not silently skipped).
  26. Order draft is in-memory only (OrderController.draft); leaving/closing the page discards it without touching stock. Counter changes trigger a debounced (QTimer single-shot) dry-run that enables/disables Place Order and shows inline shortages.
+ 27. Order financials: subtotal = revenue = Σ(items.price × quantity); cost = Σ(amount consumed from each batch × stock_batch.price), where stock_batch.price is the per-single-unit cost. Because deduction is FIFO, cost is the exact sum over the consumed (oldest) batches. profit = subtotal − cost (display only). Both subtotal and cost are stored on the orders row at placement (UPDATE inside place_order's transaction).
+ 28. Live vs finalized cost: validate_stock (dry-run) attaches result.subtotal + result.est_cost via OrderModel._project_cost, which walks batches oldest-first pricing the consumed amount WITHOUT mutating stock — so the summary panel's live Subtotal/Est. cost/Est. profit match the finalized totals. _required_by_stock(order) is the shared per-stock requirement aggregator used by validate_stock, _project_cost, and _deduct_for_order (which now returns total cost or None on failure).
+ 29. Order page live refresh: StockController and RecipesController each expose a data_changed Signal. StockController emits it on item insert/update/delete AND on batch insert/update/delete/toggle (batch model is transient, so those connections are made in open_batch_window); RecipesController emits it on recipe save/update. MainWindow (front controller) relays both to OrderController.refresh_current_order(), which rebuilds the recipe list (set_recipes), reconciles the in-progress draft (drops recipes that no longer exist, refreshes names — preserving quantities), and re-runs the dry-run. Counter restore uses RecipeOrderRow.set_quantity() which sets the value silently (no quantity_changed emit) to avoid feedback loops.
 
 MAINTENANCE:
   THIS FILE MUST BE UPDATED whenever any edit, addition, or removal is made to the project

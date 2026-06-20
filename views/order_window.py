@@ -76,6 +76,12 @@ class RecipeOrderRow(QFrame):
         self.qty = 0
         self.qty_label.setText("0")
 
+    def set_quantity(self, qty: int):
+        """Set the counter silently (no quantity_changed emit) — used when the
+        list is rebuilt and the in-progress draft is restored onto fresh rows."""
+        self.qty = qty
+        self.qty_label.setText(str(qty))
+
 
 # ------------------------------------------------------------------ #
 #  Order page
@@ -150,6 +156,17 @@ class OrderWindow(QWidget):
         self.summary_label.setWordWrap(True)
         self.summary_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         summary_layout.addWidget(self.summary_label)
+
+        totals_sep = QFrame()
+        totals_sep.setFrameShape(QFrame.Shape.HLine)
+        totals_sep.setObjectName("separator")
+        summary_layout.addWidget(totals_sep)
+
+        self.totals_label = QLabel("")
+        self.totals_label.setObjectName("totalsBody")
+        self.totals_label.setTextFormat(Qt.TextFormat.RichText)
+        self.totals_label.setAlignment(Qt.AlignmentFlag.AlignTop)
+        summary_layout.addWidget(self.totals_label)
 
         self.warning_label = QLabel("")
         self.warning_label.setObjectName("warningBody")
@@ -227,6 +244,7 @@ class OrderWindow(QWidget):
                 font-family: Georgia; font-size: 16px; font-weight: bold; color: #8B4FCB;
             }
             QLabel#summaryBody { font-family: Georgia; font-size: 12px; color: #4A3728; }
+            QLabel#totalsBody { font-family: Georgia; font-size: 13px; color: #2C1810; }
             QLabel#warningBody { font-family: Georgia; font-size: 12px; color: #C0392B; }
             QLabel#emptyLabel { font-family: Georgia; font-size: 13px; color: #8A7A6A; }
             QPushButton#placeBtn {
@@ -238,21 +256,39 @@ class OrderWindow(QWidget):
         """)
 
     # -- public API ----------------------------------------------------
-    def set_recipes(self, recipes: list[dict]):
+    def set_recipes(self, recipes: list[dict], draft: dict | None = None):
+        """Rebuild the recipe rows. If `draft` (recipe_id -> (name, qty)) is given,
+        restore those quantities onto the fresh rows (silently); the controller then
+        re-runs the dry-run to refresh totals/warnings/Place state."""
         self.recipes = recipes
         self._populate_rows()
-        self.update_summary({})
-        self.set_place_enabled(False)
         self.warning_label.setText("")
+        if draft:
+            for rid, (name, qty) in draft.items():
+                row = self.rows.get(rid)
+                if row is not None:
+                    row.set_quantity(qty)
+            self.update_summary(draft)
+        else:
+            self.update_summary({})
+            self.set_place_enabled(False)
 
-    def update_summary(self, draft: dict):
-        """draft: recipe_id -> (name, qty)."""
+    def update_summary(self, draft: dict, subtotal: float = 0.0, est_cost: float = 0.0):
+        """draft: recipe_id -> (name, qty). subtotal/est_cost are the live money totals."""
         if not draft:
             self.summary_label.setText("No items selected.")
+            self.totals_label.setText("")
             return
         lines = [f"{name} × {qty}" for name, qty in draft.values()]
         total = sum(qty for _name, qty in draft.values())
         self.summary_label.setText("\n".join(lines) + f"\n\nTotal items: {total}")
+
+        profit = subtotal - est_cost
+        self.totals_label.setText(
+            f"Subtotal:&nbsp;&nbsp;<b>{subtotal:.2f}</b><br>"
+            f"Est. cost:&nbsp;&nbsp;<b>{est_cost:.2f}</b><br>"
+            f"Est. profit:&nbsp;&nbsp;<b>{profit:.2f}</b>"
+        )
 
     def show_shortages(self, shortages: list, errors: list):
         parts = []

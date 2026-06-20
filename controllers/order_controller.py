@@ -18,6 +18,7 @@ class OrderController(QObject):
 
         # draft: recipe_id -> (name, qty); 0 removes the item.
         self.draft: dict[int, tuple[str, int]] = {}
+        self._last_order = None  # the Order most recently sent to place_order
 
         self.order_view = OrderWindow()
         self._refresh_recipes()
@@ -62,6 +63,7 @@ class OrderController(QObject):
             return
 
         result = self.model.validate_stock(self._build_order())
+        self.order_view.update_summary(self.draft, result.subtotal, result.est_cost)
         self.order_view.show_shortages(result.shortages, result.errors)
         self.order_view.set_place_enabled(result.ok)
 
@@ -71,13 +73,21 @@ class OrderController(QObject):
     def _on_place_requested(self):
         if not self.draft:
             return
-        self.model.place_order(self._build_order())
+        self._last_order = self._build_order()
+        self.model.place_order(self._last_order)
 
     def _on_order_placed(self, order_id: int):
+        order = self._last_order
+        profit = order.subtotal - order.cost if order else 0.0
         self.draft.clear()
         self.order_view.reset_counters()
         self.order_view.show_info(
-            "Order Placed", f"Order #{order_id} placed and stock deducted.")
+            "Order Placed",
+            f"Order #{order_id} placed and stock deducted.\n\n"
+            f"Subtotal: {order.subtotal:.2f}\n"
+            f"Cost: {order.cost:.2f}\n"
+            f"Profit: {profit:.2f}",
+        )
 
     # ──────────────────────────────────────────────
     #  Helpers
@@ -91,3 +101,17 @@ class OrderController(QObject):
     def _refresh_recipes(self):
         self.draft.clear()
         self.order_view.set_recipes(self.model.get_recipes_catalog())
+
+    def refresh_current_order(self):
+        """React to an external stock/recipe edit: rebuild the recipe list, reconcile
+        the in-progress draft (drop recipes that no longer exist, refresh names), and
+        re-run the dry-run so shortages/cost reflect the change. Preserves the draft."""
+        catalog = self.model.get_recipes_catalog()
+        name_by_id = {recipe["id"]: recipe["title"] for recipe in catalog}
+        self.draft = {
+            rid: (name_by_id[rid], qty)
+            for rid, (name, qty) in self.draft.items()
+            if rid in name_by_id
+        }
+        self.order_view.set_recipes(catalog, self.draft)
+        self._run_dry_run()

@@ -24,6 +24,11 @@ class MainWindow(QMainWindow):
         self.stock_controller = StockController()
         self.recipes_controller = RecipesController()
         self.order_controller = OrderController()
+
+        # Keep the Order page in sync with stock/recipe edits made on other pages.
+        self.stock_controller.data_changed.connect(self.order_controller.refresh_current_order)
+        self.recipes_controller.data_changed.connect(self.order_controller.refresh_current_order)
+
         super().__init__()
         self.setWindowTitle("Inventory System")
         self.resize(800, 600)

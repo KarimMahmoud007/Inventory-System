@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -)",
+      "Bash(python3 -m py_compile models/order_model.py models/entities.py views/order_window.py controllers/order_controller.py)"
+    ]
+  }
+}

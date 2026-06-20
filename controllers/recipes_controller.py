@@ -1,4 +1,4 @@
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from views.recipes_window import RecipesPage
 from views.add_recipe_window import AddRecipeWindow, RecipeMode
 from models.recipes_model import RecipesModel
@@ -7,6 +7,9 @@ from Utilities.validate_data import validate_recipe_item
 
 
 class RecipesController(QObject):
+
+    # Relayed to OrderController so the Order page refreshes on any recipe change.
+    data_changed = Signal()
 
     def __init__(self):
         super().__init__()
@@ -20,6 +23,8 @@ class RecipesController(QObject):
         self.recipes_view.edit_recipe_requested.connect(self.open_edit_recipe_window)
         self.model.recipe_saved_successfully.connect(self._refresh_recipes)
         self.model.recipe_updated_successfully.connect(self._refresh_recipes)
+        self.model.recipe_saved_successfully.connect(self.data_changed.emit)
+        self.model.recipe_updated_successfully.connect(self.data_changed.emit)
         self._refresh_recipes()
 
     def open_add_recipe_window(self):
