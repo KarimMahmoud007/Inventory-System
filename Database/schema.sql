@@ -53,3 +53,19 @@ CREATE TABLE IF NOT EXISTS wasted_stock (
     waste_type TEXT NOT NULL,
     wasted_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'placed', 'cancelled', 'fulfilled'))
+);
+
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id INTEGER PRIMARY KEY,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES items(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0)
+);

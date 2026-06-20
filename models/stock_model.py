@@ -15,6 +15,11 @@ class StockModel(BaseModel):
         super().__init__()
         self.model = None
 
+    def sync_model(self):
+        self.model.select()
+        self.invalidate_catalog()
+        self.model.refresh()
+
     def get_stock_model(self):
         self.model = QSqlRelationalTableModel(self, self.db)
         self.model.setTable("stock")
@@ -50,9 +55,7 @@ class StockModel(BaseModel):
         if not self.model.submitAll():
             print("Submit failed:", self.model.lastError().text())
         else:
-            self.model.select()
-            self.invalidate_catalog()
-            self.model.refresh()
+            self.sync_model()
             self.item_inserted_successfully.emit()
 
     def get_stock_item(self, item_id: int) -> StockItem | None:
@@ -77,9 +80,7 @@ class StockModel(BaseModel):
         if not query.exec():
             print("Update failed:", query.lastError().text())
         else:
-            self.model.select()
-            self.invalidate_catalog()
-            self.model.refresh()
+            self.sync_model()
             self.item_updated_successfully.emit()
 
     def delete_stock_item(self, item_id: int):
@@ -95,7 +96,5 @@ class StockModel(BaseModel):
             else:
                 print("Delete failed:", query.lastError().text())
         else:
-            self.model.select()
-            self.invalidate_catalog()
-            self.model.refresh()
+            self.sync_model()
             self.item_deleted_successfully.emit()

@@ -34,3 +34,34 @@ class Recipe:
     price: float
     recipe_items: list[RecipeItem]
     id: int | None = None
+
+
+@dataclass
+class OrderItem:
+    recipe_id: int
+    recipe_name: str
+    quantity: int
+
+
+@dataclass
+class Order:
+    items: list[OrderItem]
+    id: int | None = None
+    created_at: str | None = None
+    status: str = 'draft'
+
+
+@dataclass
+class Shortage:
+    stock_id: int
+    stock_name: str
+    required: float
+    available: float
+    unit: str
+
+
+@dataclass
+class ValidationResult:
+    ok: bool
+    shortages: list[Shortage]
+    errors: list[str]

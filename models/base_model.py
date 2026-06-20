@@ -80,6 +80,30 @@ class BaseModel(QObject):
             )
         return recipes
 
+    @staticmethod
+    @lru_cache
+    def get_available_stock(stock_id):
+        """Total available quantity for a stock item, summed across its available
+        batches, expressed in that item's own unit_of_measure.
+
+        lru_cache-wrapped so repeated dry-run checks during interactive counter
+        clicks don't re-hit the database. Invalidate via invalidate_available_stock()
+        after any committed stock mutation (order deduction or batch edit)."""
+        db = BaseModel._shared_db or create_QtConnection()
+        query = QSqlQuery(db)
+        query.prepare(
+            "SELECT COALESCE(SUM(quantity), 0) FROM stock_batch "
+            "WHERE stock_id = ? AND status = 'available'"
+        )
+        query.addBindValue(stock_id)
+        query.exec()
+        if query.next():
+            return float(query.value(0))
+        return 0.0
+
+    def invalidate_available_stock(self):
+        type(self).get_available_stock.cache_clear()
+
     def invalidate_catalog(self):
         type(self).get_catalog.cache_clear()
 

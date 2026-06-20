@@ -1,0 +1,93 @@
+from PySide6.QtCore import QObject, QTimer
+from views.order_window import OrderWindow
+from models.order_model import OrderModel
+from models.entities import Order, OrderItem
+
+
+class OrderController(QObject):
+    """Owns the order view + model, keeps the in-progress draft in memory, and runs a
+    debounced dry-run check on every counter change. The draft is never persisted —
+    only place_order writes to the database."""
+
+    DEBOUNCE_MS = 150
+
+    def __init__(self):
+        super().__init__()
+
+        self.model = OrderModel()
+
+        # draft: recipe_id -> (name, qty); 0 removes the item.
+        self.draft: dict[int, tuple[str, int]] = {}
+
+        self.order_view = OrderWindow()
+        self._refresh_recipes()
+
+        self.order_view.quantity_changed.connect(self._on_quantity_changed)
+        self.order_view.place_order_requested.connect(self._on_place_requested)
+
+        self.model.order_placed_successfully.connect(self._on_order_placed)
+        self.model.order_place_rejected.connect(
+            lambda msg: self.order_view.show_warning("Cannot Place Order", msg))
+
+        # single-shot debounce so rapid clicks don't re-validate on every tick
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(self.DEBOUNCE_MS)
+        self._debounce.timeout.connect(self._run_dry_run)
+
+    # ──────────────────────────────────────────────
+    #  Draft handling
+    # ──────────────────────────────────────────────
+    def _on_quantity_changed(self, recipe_id: int, qty: int):
+        if qty <= 0:
+            self.draft.pop(recipe_id, None)
+        else:
+            name = self._recipe_name(recipe_id)
+            self.draft[recipe_id] = (name, qty)
+
+        self.order_view.update_summary(self.draft)
+        self._debounce.start()
+
+    def _build_order(self) -> Order:
+        items = [
+            OrderItem(recipe_id=rid, recipe_name=name, quantity=qty)
+            for rid, (name, qty) in self.draft.items()
+        ]
+        return Order(items=items)
+
+    def _run_dry_run(self):
+        if not self.draft:
+            self.order_view.show_shortages([], [])
+            self.order_view.set_place_enabled(False)
+            return
+
+        result = self.model.validate_stock(self._build_order())
+        self.order_view.show_shortages(result.shortages, result.errors)
+        self.order_view.set_place_enabled(result.ok)
+
+    # ──────────────────────────────────────────────
+    #  Place order
+    # ──────────────────────────────────────────────
+    def _on_place_requested(self):
+        if not self.draft:
+            return
+        self.model.place_order(self._build_order())
+
+    def _on_order_placed(self, order_id: int):
+        self.draft.clear()
+        self.order_view.reset_counters()
+        self.order_view.show_info(
+            "Order Placed", f"Order #{order_id} placed and stock deducted.")
+
+    # ──────────────────────────────────────────────
+    #  Helpers
+    # ──────────────────────────────────────────────
+    def _recipe_name(self, recipe_id: int) -> str:
+        for recipe in self.model.get_recipes_catalog():
+            if recipe["id"] == recipe_id:
+                return recipe["title"]
+        return str(recipe_id)
+
+    def _refresh_recipes(self):
+        self.draft.clear()
+        self.order_view.set_recipes(self.model.get_recipes_catalog())

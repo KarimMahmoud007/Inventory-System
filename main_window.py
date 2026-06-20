@@ -14,6 +14,7 @@ from views.test_window import TestWindow
 
 from controllers.stock_controller import StockController
 from controllers.recipes_controller import RecipesController
+from controllers.order_controller import OrderController
 
 
 
@@ -22,6 +23,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         self.stock_controller = StockController()
         self.recipes_controller = RecipesController()
+        self.order_controller = OrderController()
         super().__init__()
         self.setWindowTitle("Inventory System")
         self.resize(800, 600)
@@ -55,6 +57,7 @@ class MainWindow(QMainWindow):
             "Home": HomeWindow(),
             "Stock": self.stock_controller.stock_view,
             "Recipes": self.recipes_controller.recipes_view,
+            "Order": self.order_controller.order_view,
             "Staff": StaffWindow(),
             "Test": TestWindow(),
         }

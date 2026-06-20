@@ -27,8 +27,9 @@ FILE STRUCTURE:
   │   ├── base_model.py              # BaseModel(QObject) — _shared_db singleton, properties (units/catalog/recipes_catalog) delegating to @staticmethod @lru_cache, invalidate_* methods
   │   ├── entities.py                # Dataclasses: StockItem, StockBatch, RecipeItem, Recipe
   │   ├── stock_model.py             # Stock item CRUD — insert via QSqlRelationalTableModel (rejects duplicate name), get/update/delete via QSqlQuery by PK (delete DB-restricted by batches), rejection signals, extends BaseModel
-  │   ├── stock_batch_model.py       # Stock batch CRUD — insert via QSqlTableModel, get/update/delete/toggle via QSqlQuery by PK, extends BaseModel
-  │   └── recipes_model.py           # Recipes — save_recipe/get_recipe/update_recipe with transaction, cache clears via invalidate_*(), extends BaseModel
+  │   ├── stock_batch_model.py       # Stock batch CRUD — insert via QSqlTableModel, get/update/delete/toggle via QSqlQuery by PK, extends BaseModel; all mutators call invalidate_available_stock() (keeps order dry-run cache fresh)
+  │   ├── recipes_model.py           # Recipes — save_recipe/get_recipe/update_recipe with transaction, cache clears via invalidate_*(), extends BaseModel
+  │   └── order_model.py             # Orders — validate_stock(order)->ValidationResult (cached dry-run, no real stock), place_order(order) (transactional persist+FIFO deduct), _deduct_for_order (oldest batch first by added_at), order_placed_successfully/order_place_rejected signals, extends BaseModel
   ├── views/
   │   ├── home_window.py             # Home page (placeholder QLabel)
   │   ├── stock_window.py            # Level 1 item list: QTableView with right-click (View Batches/Edit/Delete), signals emit PK (int), uses _get_item_id(row), exposes show_warning()
@@ -37,13 +38,16 @@ FILE STRUCTURE:
   │   ├── add_batch_window.py        # Form: Price + Dates + Quantity QDateEdit/QLineEdit, INSERT/UPDATE modes, BatchMode enum
   │   ├── recipes_window.py          # Recipe cards in QGridLayout, add_recipe_requested + edit_recipe_requested signals, RecipeCard emits id: int
   │   ├── add_recipe_window.py       # Add recipe form: dynamic ingredient rows, INSERT/EDIT modes, emits recipe_submitted or recipe_edit_submitted
+  │   ├── order_window.py            # Order page: scrollable recipe rows each with a +/- counter (RecipeOrderRow), running summary panel + inline shortage/error warnings + Place Order button, signals quantity_changed(recipe_id,qty)/place_order_requested, no DB access, exposes show_warning/show_info
   │   ├── staff_window.py            # Staff page (placeholder)
   │   └── test_window.py             # Test page (placeholder)
   ├── controllers/
   │   ├── stock_controller.py        # Two-level orchestration: internal QStackedWidget, Level 1 = items, Level 2 = batches, swaps pages on View Batches / Back, all operations pass PKs to models
-  │   └── recipes_controller.py      # Owns both views, handles validation, entity construction, save orchestration, refreshes cards on save, passes model.catalog+model.units to AddRecipeWindow
+  │   ├── recipes_controller.py      # Owns both views, handles validation, entity construction, save orchestration, refreshes cards on save, passes model.catalog+model.units to AddRecipeWindow
+  │   └── order_controller.py        # Owns OrderWindow + OrderModel, keeps in-memory draft dict {recipe_id:(name,qty)} (qty 0 removes), debounced (QTimer 150ms) dry-run on counter change → enables/disables Place + shows warnings, on place calls model.place_order, clears draft + resets counters on success
   └── Utilities/
       ├── utilities.py               # create_QtConnection() [QSqlDatabase singleton with relative path], create_connection() [sqlite3 for schema init]
+      ├── units.py                   # UNIT_FACTORS map (g/kg=mass, mL/L=volume) + convert(amount, from, to) — raises ValueError on unknown unit or cross-dimension conversion (used by order dry-run/deduction)
       └── validate_data.py           # validate_data() for stock form fields + validate_recipe_item(amount) returns bool
 
 DATABASE SCHEMA (schema.sql):
@@ -52,6 +56,8 @@ DATABASE SCHEMA (schema.sql):
   items          — id, name, available, price  (finished products/recipes)
   items_recipe   — id, item_id (FK→items.id), stock_id (FK→stock.id), amount, unit (FK→units.id)  (recipe ingredient link)
   wasted_stock   — id, stock_batch_id (FK→stock_batch.id), wasted_amount, unit (FK→units.id), price, waste_type, wasted_at
+  orders         — id, created_at, status (draft/placed/cancelled/fulfilled)  (order header)
+  order_items    — id, order_id (FK→orders.id ON DELETE CASCADE), item_id (FK→items.id), quantity  (one row per recipe ordered)
   units          — id, name (seed: kg, mL, L, g)  (reference)
 
 Seeded data: units → [(1,'kg'), (2,'mL'), (3,'L'), (4,'g')]
@@ -78,6 +84,11 @@ KEY PATTERNS / CONVENTIONS:
  19. Stock delete is DB-enforced: stock_batch.stock_id is REFERENCES stock(id) ON DELETE RESTRICT. delete_stock_item lets the DELETE fail and, on FK violation (nativeErrorCode 787/19), emits item_delete_rejected(str) instead of querying for batches first
  20. Stock insert rejects duplicate names: insert_stock_item runs an in-code case-insensitive check (name = ? COLLATE NOCASE, trimmed) and emits item_insert_rejected(str) if a match exists
  21. Rejection signals (item_delete_rejected / item_insert_rejected) carry a user message; StockController wires them to view.show_warning (StockWindow now exposes show_warning; AddStockItemWindow already did)
+ 22. Order dry-run: OrderModel.validate_stock expands order items → recipe ingredients (items_recipe) → sums required per stock item → compares against cached BaseModel.get_available_stock(stock_id). Pure read, touches no real stock. Returns ValidationResult(ok, shortages, errors).
+ 23. Available-stock cache: BaseModel.get_available_stock(stock_id) is @staticmethod @lru_cache (sum of available stock_batch.quantity in the item's own unit). Invalidation is EXPLICIT via invalidate_available_stock() (.cache_clear()) after every committed stock mutation — called by OrderModel.place_order (post-commit) AND by all StockBatchModel mutators (insert/update/delete/toggle). All stock writes go through StockBatchModel or OrderModel, so the cache cannot go stale; this is the single serialized stock-mutation path.
+ 24. FIFO/oldest-batch-first deduction: OrderModel._deduct_for_order fetches each ingredient's available batches (quantity>0) ORDER BY added_at ASC, id ASC, deducts from the oldest, rolls the remainder to the next, and flips a depleted batch to status='out_of_stock'. Runs inside place_order's db.transaction() (rollback on any failure → no partial deduction).
+ 25. Unit conversion (Utilities/units.py): recipe ingredient amounts (items_recipe.unit) are converted into the stock item's unit_of_measure before compare/deduct. Cross-dimension (e.g. g↔L) or unknown units raise ValueError → surfaced as fail-loud errors in ValidationResult.errors (place blocked). Recipes with no items_recipe mapping also fail loudly (not silently skipped).
+ 26. Order draft is in-memory only (OrderController.draft); leaving/closing the page discards it without touching stock. Counter changes trigger a debounced (QTimer single-shot) dry-run that enables/disables Place Order and shows inline shortages.
 
 MAINTENANCE:
   THIS FILE MUST BE UPDATED whenever any edit, addition, or removal is made to the project

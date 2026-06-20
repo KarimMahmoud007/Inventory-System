@@ -35,6 +35,7 @@ class StockBatchModel(BaseModel):
         else:
             self.model.select()
             self.model.refresh()
+            self.invalidate_available_stock()
             self.batch_inserted_successfully.emit()
 
     def get_batch(self, batch_id: int) -> StockBatch | None:
@@ -67,6 +68,7 @@ class StockBatchModel(BaseModel):
         else:
             self.model.select()
             self.model.refresh()
+            self.invalidate_available_stock()
             self.batch_updated_successfully.emit()
 
     def delete_batch(self, batch_id: int):
@@ -78,6 +80,7 @@ class StockBatchModel(BaseModel):
         else:
             self.model.select()
             self.model.refresh()
+            self.invalidate_available_stock()
             self.batch_deleted_successfully.emit()
 
     def toggle_status(self, batch_id: int):
@@ -99,4 +102,5 @@ class StockBatchModel(BaseModel):
         else:
             self.model.select()
             self.model.refresh()
+            self.invalidate_available_stock()
             self.batch_status_toggled.emit()
