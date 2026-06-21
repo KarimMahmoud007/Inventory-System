@@ -36,6 +36,7 @@ class RecipesModel(BaseModel):
         self.db.commit()
         self.invalidate_catalog()
         self.invalidate_recipes_catalog()
+        self.invalidate_recipe_requirements()
         self.recipe_saved_successfully.emit()
         print("Recipe saved successfully")
         return True
@@ -125,6 +126,7 @@ class RecipesModel(BaseModel):
         self.db.commit()
         self.invalidate_catalog()
         self.invalidate_recipes_catalog()
+        self.invalidate_recipe_requirements()
         self.recipe_updated_successfully.emit()
         print("Recipe updated successfully")
         return True

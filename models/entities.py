@@ -68,4 +68,3 @@ class ValidationResult:
     shortages: list[Shortage]
     errors: list[str]
     subtotal: float = 0.0
-    est_cost: float = 0.0

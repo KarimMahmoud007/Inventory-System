@@ -9,37 +9,22 @@ class OrderModel(BaseModel):
     order_placed_successfully = Signal(int)
     order_place_rejected = Signal(str)
 
+    def __init__(self, batch_model):
+        """`batch_model` is the shared StockBatchModel injected by MainWindow — used
+        for all stock_batch access during FIFO deduction (read available batches,
+        write the deducted quantities)."""
+        super().__init__()
+        self.batches = batch_model
+
     # ──────────────────────────────────────────────
     #  Recipe → ingredient requirements
     # ──────────────────────────────────────────────
     def _recipe_requirements(self, item_id: int):
-        """Return the ingredient rows for a recipe (items) row.
-
-        Each tuple is (stock_id, stock_name, amount, recipe_unit, stock_unit).
-        An empty list means the recipe has no ingredient mapping — the caller
-        must fail loudly rather than silently treating it as available.
-        """
-        query = QSqlQuery(self.db)
-        query.prepare("""
-            SELECT ir.stock_id, s.name, ir.amount, ru.name, su.name
-            FROM items_recipe ir
-            JOIN stock s  ON ir.stock_id = s.id
-            JOIN units ru ON ir.unit = ru.id
-            JOIN units su ON s.unit_of_measure = su.id
-            WHERE ir.item_id = ?
-        """)
-        query.addBindValue(item_id)
-        query.exec()
-        rows = []
-        while query.next():
-            rows.append((
-                query.value(0),          # stock_id
-                query.value(1),          # stock name
-                float(query.value(2)),   # amount
-                query.value(3),          # recipe unit name
-                query.value(4),          # stock unit name
-            ))
-        return rows
+        """Cached ingredient rows for a recipe (items) row — thin wrapper over
+        BaseModel.get_recipe_requirements. Returns a tuple of
+        (stock_id, stock_name, amount, recipe_unit, stock_unit) tuples; an empty
+        tuple means no ingredient mapping (caller must fail loudly)."""
+        return self.get_recipe_requirements(item_id)
 
     def _required_by_stock(self, order: Order):
         """Sum the required amount per stock item (converted into that item's own
@@ -74,57 +59,26 @@ class OrderModel(BaseModel):
     # ──────────────────────────────────────────────
     #  Money: subtotal (selling price) + cost (batch price)
     # ──────────────────────────────────────────────
-    def _recipe_price(self, item_id: int) -> float:
-        """Selling price of a recipe (items.price)."""
-        query = QSqlQuery(self.db)
-        query.prepare("SELECT price FROM items WHERE id = ?")
-        query.addBindValue(item_id)
-        query.exec()
-        if query.next():
-            return float(query.value(0))
-        return 0.0
-
     def _order_subtotal(self, order: Order) -> float:
-        """Revenue: sum of recipe selling price × quantity."""
+        """Revenue: sum of recipe selling price × quantity. Prices come from the cached
+        recipes catalog (BaseModel.get_recipes_catalog) — no per-item DB query. A recipe
+        absent from the catalog has no ingredient mapping and is rejected by
+        validate_stock anyway, so a 0.0 fallback never reaches a placed order."""
+        price_by_id = {r["id"]: float(r["price"]) for r in self.recipes_catalog}
         return sum(
-            self._recipe_price(item.recipe_id) * item.quantity
+            price_by_id.get(item.recipe_id, 0.0) * item.quantity
             for item in order.items if item.quantity > 0
         )
-
-    def _project_cost(self, required: dict) -> float:
-        """Estimate ingredient cost by walking each stock item's batches oldest-first
-        and pricing the consumed amount at each batch's per-unit price — WITHOUT
-        mutating stock. Mirrors the real FIFO deduction so the live estimate matches
-        the finalized cost. `required` is the dict from _required_by_stock."""
-        total = 0.0
-        for stock_id, entry in required.items():
-            remaining = entry[2]
-            if remaining <= 1e-9:
-                continue
-            batches = QSqlQuery(self.db)
-            batches.prepare(
-                "SELECT quantity, price FROM stock_batch "
-                "WHERE stock_id = ? AND status = 'available' AND quantity > 0 "
-                "ORDER BY added_at ASC, id ASC"
-            )
-            batches.addBindValue(stock_id)
-            batches.exec()
-            while remaining > 1e-9 and batches.next():
-                batch_qty = float(batches.value(0))
-                price = float(batches.value(1))
-                take = min(batch_qty, remaining)
-                total += take * price
-                remaining -= take
-        return total
 
     # ──────────────────────────────────────────────
     #  Dry-run validation (no real stock touched)
     # ──────────────────────────────────────────────
     def validate_stock(self, order: Order) -> ValidationResult:
         """Compare required stock per ingredient against the cached available stock,
-        and attach the live subtotal + estimated cost. Returns which ingredients are
-        short and any fail-loud errors (missing mapping / incompatible units).
-        Touches no real stock."""
+        and attach the live subtotal. Returns which ingredients are short and any
+        fail-loud errors (missing mapping / incompatible units). Touches no real
+        stock. Cost/profit are not estimated here — they are computed exactly at
+        placement (see _deduct_for_order)."""
         required, errors = self._required_by_stock(order)
 
         shortages: list[Shortage] = []
@@ -145,7 +99,6 @@ class OrderModel(BaseModel):
             shortages=shortages,
             errors=errors,
             subtotal=self._order_subtotal(order),
-            est_cost=self._project_cost(required),
         )
 
     # ──────────────────────────────────────────────
@@ -189,7 +142,7 @@ class OrderModel(BaseModel):
                 self.order_place_rejected.emit("Could not save order items.")
                 return
 
-        cost = self._deduct_for_order(order, query)
+        cost = self._deduct_for_order(order)
         if cost is None:
             self.db.rollback()
             self.order_place_rejected.emit("Stock deduction failed; order rolled back.")
@@ -217,53 +170,28 @@ class OrderModel(BaseModel):
     # ──────────────────────────────────────────────
     #  FIFO deduction (oldest batch first), returns total cost
     # ──────────────────────────────────────────────
-    def _deduct_for_order(self, order: Order, query: QSqlQuery):
+    def _deduct_for_order(self, order: Order):
         """Deduct each required ingredient amount from its available batches,
         oldest-first (FIFO by added_at), pricing consumed amounts at each batch's
         per-unit price. Rolls the remainder over to the next batch and flips a
-        depleted batch to out_of_stock. Runs inside place_order's transaction.
+        depleted batch to out_of_stock (via StockBatchModel.deduct_batch). Runs inside
+        place_order's transaction — deduct_batch shares the same DB connection.
         Returns the total ingredient cost, or None on any failure (caller rolls back)."""
         required, _errors = self._required_by_stock(order)
         total_cost = 0.0
 
         for stock_id, entry in required.items():
             remaining = entry[2]
-            batches = QSqlQuery(self.db)
-            batches.prepare(
-                "SELECT id, quantity, price FROM stock_batch "
-                "WHERE stock_id = ? AND status = 'available' AND quantity > 0 "
-                "ORDER BY added_at ASC, id ASC"
-            )
-            batches.addBindValue(stock_id)
-            batches.exec()
 
-            batch_rows = []
-            while batches.next():
-                batch_rows.append((
-                    batches.value(0),
-                    float(batches.value(1)),
-                    float(batches.value(2)),
-                ))
-
-            for batch_id, batch_qty, price in batch_rows:
+            for batch_id, batch_qty, price in self.batches.get_available_batches(stock_id):
                 if remaining <= 1e-9:
                     break
                 take = min(batch_qty, remaining)
-                new_qty = batch_qty - take
                 remaining -= take
                 total_cost += take * price
 
-                if new_qty <= 1e-9:
-                    query.prepare(
-                        "UPDATE stock_batch SET quantity = 0, status = 'out_of_stock' WHERE id = ?"
-                    )
-                    query.addBindValue(batch_id)
-                else:
-                    query.prepare("UPDATE stock_batch SET quantity = ? WHERE id = ?")
-                    query.addBindValue(new_qty)
-                    query.addBindValue(batch_id)
-                if not query.exec():
-                    print("Batch deduction failed:", query.lastError().text())
+                if not self.batches.deduct_batch(batch_id, take):
+                    print("Batch deduction failed for batch", batch_id)
                     return None
 
             if remaining > 1e-9:

@@ -101,8 +101,47 @@ class BaseModel(QObject):
             return float(query.value(0))
         return 0.0
 
+    @staticmethod
+    @lru_cache
+    def get_recipe_requirements(item_id):
+        """Ingredient rows for a recipe (items) row, as a tuple of
+        (stock_id, stock_name, amount, recipe_unit, stock_unit) tuples. An empty
+        tuple means the recipe has no ingredient mapping — the caller must fail
+        loudly rather than treat it as available.
+
+        lru_cache-wrapped so repeated dry-runs during interactive counter clicks
+        don't re-run the 4-table JOIN. Invalidate via invalidate_recipe_requirements()
+        whenever items_recipe changes (recipe save/update) or a stock item's
+        name/unit changes (affects stock_name / stock_unit, the latter feeding
+        unit conversion during deduction)."""
+        db = BaseModel._shared_db or create_QtConnection()
+        query = QSqlQuery(db)
+        query.prepare("""
+            SELECT ir.stock_id, s.name, ir.amount, ru.name, su.name
+            FROM items_recipe ir
+            JOIN stock s  ON ir.stock_id = s.id
+            JOIN units ru ON ir.unit = ru.id
+            JOIN units su ON s.unit_of_measure = su.id
+            WHERE ir.item_id = ?
+        """)
+        query.addBindValue(item_id)
+        query.exec()
+        rows = []
+        while query.next():
+            rows.append((
+                query.value(0),          # stock_id
+                query.value(1),          # stock name
+                float(query.value(2)),   # amount
+                query.value(3),          # recipe unit name
+                query.value(4),          # stock unit name
+            ))
+        return tuple(rows)
+
     def invalidate_available_stock(self):
         type(self).get_available_stock.cache_clear()
+
+    def invalidate_recipe_requirements(self):
+        type(self).get_recipe_requirements.cache_clear()
 
     def invalidate_catalog(self):
         type(self).get_catalog.cache_clear()

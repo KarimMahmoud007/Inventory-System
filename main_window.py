@@ -16,14 +16,27 @@ from controllers.stock_controller import StockController
 from controllers.recipes_controller import RecipesController
 from controllers.order_controller import OrderController
 
+from models.stock_model import StockModel
+from models.stock_batch_model import StockBatchModel
+from models.recipes_model import RecipesModel
+from models.order_model import OrderModel
+
 
 
 class MainWindow(QMainWindow):
 
     def __init__(self):
-        self.stock_controller = StockController()
-        self.recipes_controller = RecipesController()
-        self.order_controller = OrderController()
+        # Models are created once here and injected into the controllers. The single
+        # StockBatchModel is shared by the Stock page and the order path (OrderModel),
+        # so all stock_batch access goes through one persistent instance.
+        self.stock_model = StockModel()
+        self.batch_model = StockBatchModel()
+        self.recipes_model = RecipesModel()
+        self.order_model = OrderModel(self.batch_model)
+
+        self.stock_controller = StockController(self.stock_model, self.batch_model)
+        self.recipes_controller = RecipesController(self.recipes_model)
+        self.order_controller = OrderController(self.order_model)
 
         # Keep the Order page in sync with stock/recipe edits made on other pages.
         self.stock_controller.data_changed.connect(self.order_controller.refresh_current_order)

@@ -1,6 +1,5 @@
 from PySide6.QtCore import QObject, QTimer
 from views.order_window import OrderWindow
-from models.order_model import OrderModel
 from models.entities import Order, OrderItem
 
 
@@ -11,10 +10,10 @@ class OrderController(QObject):
 
     DEBOUNCE_MS = 150
 
-    def __init__(self):
+    def __init__(self, order_model):
         super().__init__()
 
-        self.model = OrderModel()
+        self.model = order_model
 
         # draft: recipe_id -> (name, qty); 0 removes the item.
         self.draft: dict[int, tuple[str, int]] = {}
@@ -63,7 +62,7 @@ class OrderController(QObject):
             return
 
         result = self.model.validate_stock(self._build_order())
-        self.order_view.update_summary(self.draft, result.subtotal, result.est_cost)
+        self.order_view.update_summary(self.draft, result.subtotal)
         self.order_view.show_shortages(result.shortages, result.errors)
         self.order_view.set_place_enabled(result.ok)
 

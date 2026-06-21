@@ -18,6 +18,7 @@ class StockModel(BaseModel):
     def sync_model(self):
         self.model.select()
         self.invalidate_catalog()
+        self.invalidate_recipe_requirements()
         self.model.refresh()
 
     def get_stock_model(self):

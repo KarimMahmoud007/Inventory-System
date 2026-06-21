@@ -104,3 +104,51 @@ class StockBatchModel(BaseModel):
             self.model.refresh()
             self.invalidate_available_stock()
             self.batch_status_toggled.emit()
+
+    # ──────────────────────────────────────────────
+    #  Public batch API for the order path (no UI model / no signals)
+    # ──────────────────────────────────────────────
+    def get_available_batches(self, stock_id: int) -> list[tuple]:
+        """Available batches for a stock item, oldest-first (FIFO by added_at).
+
+        Returns a list of (id, quantity, price) tuples (quantity/price as float).
+        Pure read — does not touch the UI table model. Shared by OrderModel's cost
+        projection and FIFO deduction so they price batches identically."""
+        query = QSqlQuery(self.db)
+        query.prepare(
+            "SELECT id, quantity, price FROM stock_batch "
+            "WHERE stock_id = ? AND status = 'available' AND quantity > 0 "
+            "ORDER BY added_at ASC, id ASC"
+        )
+        query.addBindValue(stock_id)
+        query.exec()
+        rows = []
+        while query.next():
+            rows.append((
+                query.value(0),
+                float(query.value(1)),
+                float(query.value(2)),
+            ))
+        return rows
+
+    def deduct_batch(self, batch_id: int, amount: float) -> bool:
+        """Subtract `amount` from a batch's remaining quantity, flipping it to
+        out_of_stock (and clamping quantity to exactly 0) when depleted.
+
+        Runs on the shared DB connection, so it participates in any transaction the
+        caller (OrderModel.place_order) has already opened. Does not refresh the UI
+        table model or emit signals. Returns whether the UPDATE succeeded."""
+        query = QSqlQuery(self.db)
+        query.prepare(
+            "UPDATE stock_batch "
+            "SET quantity = CASE WHEN quantity - ? <= 1e-9 THEN 0 ELSE quantity - ? END, "
+            "    status = CASE WHEN quantity - ? <= 1e-9 THEN 'out_of_stock' ELSE status END "
+            "WHERE id = ?"
+        )
+        query.addBindValue(amount)   # quantity CASE test
+        query.addBindValue(amount)   # quantity CASE else (decrement)
+        query.addBindValue(amount)   # status CASE test
+        query.addBindValue(batch_id)
+        return query.exec()
+
+
