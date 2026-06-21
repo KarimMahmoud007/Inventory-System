@@ -1,8 +1,6 @@
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QStackedWidget
 
-from models.stock_model import StockModel
-from models.stock_batch_model import StockBatchModel
 from views.stock_window import StockWindow
 from views.stock_batch_window import StockBatchWindow
 from views.add_stock_item_window import AddStockItemWindow, StockMode
@@ -16,17 +14,20 @@ class StockController(QObject):
     # Relayed to OrderController so the Order page refreshes on any stock change.
     data_changed = Signal()
 
-    def __init__(self):
+    def __init__(self, stock_model, batch_model):
         super().__init__()
 
         self.stack = QStackedWidget()
         self.add_item_window = None
         self.add_batch_window = None
         self.batch_view = None
-        self.batch_model_instance = None
+
+        # Models are created once in MainWindow and injected. batch_model is the single
+        # shared StockBatchModel (also used by the order path) — persistent, not per-window.
+        self.batch_model_instance = batch_model
 
         # ---- Level 1: Stock items ----
-        self.stock_model = StockModel()
+        self.stock_model = stock_model
         self.table_model = self.stock_model.get_stock_model()
         self.item_view = StockWindow(self.table_model)
         self.stack.addWidget(self.item_view)
@@ -45,6 +46,13 @@ class StockController(QObject):
         self.stock_model.item_inserted_successfully.connect(self.data_changed.emit)
         self.stock_model.item_updated_successfully.connect(self.data_changed.emit)
         self.stock_model.item_deleted_successfully.connect(self.data_changed.emit)
+
+        # Relay batch changes to the Order page. The batch model is now persistent
+        # (shared/injected), so these are wired once here rather than per batch window.
+        self.batch_model_instance.batch_inserted_successfully.connect(self.data_changed.emit)
+        self.batch_model_instance.batch_updated_successfully.connect(self.data_changed.emit)
+        self.batch_model_instance.batch_deleted_successfully.connect(self.data_changed.emit)
+        self.batch_model_instance.batch_status_toggled.connect(self.data_changed.emit)
 
         self.stock_view = self.stack
 
@@ -93,10 +101,9 @@ class StockController(QObject):
             self.stack.removeWidget(self.batch_view)
             self.batch_view.deleteLater()
             self.batch_view = None
-            self.batch_model_instance = None
 
         stock_name = self.stock_model.get_stock_name(stock_id)
-        self.batch_model_instance = StockBatchModel()
+        # Rebuild the shared batch model's filtered table model for this stock item.
         batch_model = self.batch_model_instance.get_batch_model(stock_id)
         self.batch_view = StockBatchWindow(stock_id, stock_name, batch_model)
 
@@ -105,13 +112,6 @@ class StockController(QObject):
         self.batch_view.edit_batch_requested.connect(self.open_edit_batch_window)
         self.batch_view.delete_batch_requested.connect(self.delete_batch)
         self.batch_view.toggle_status_requested.connect(self.toggle_batch_status)
-
-        # Relay batch changes to the Order page (this instance is transient,
-        # so the connections are made here each time it's created).
-        self.batch_model_instance.batch_inserted_successfully.connect(self.data_changed.emit)
-        self.batch_model_instance.batch_updated_successfully.connect(self.data_changed.emit)
-        self.batch_model_instance.batch_deleted_successfully.connect(self.data_changed.emit)
-        self.batch_model_instance.batch_status_toggled.connect(self.data_changed.emit)
 
         self.stack.addWidget(self.batch_view)
         self.stack.setCurrentWidget(self.batch_view)
@@ -122,7 +122,6 @@ class StockController(QObject):
             self.stack.removeWidget(self.batch_view)
             self.batch_view.deleteLater()
             self.batch_view = None
-            self.batch_model_instance = None
 
     def open_add_batch_window(self):
         self.add_batch_window = AddBatchWindow(BatchMode.INSERT.value)

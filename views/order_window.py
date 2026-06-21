@@ -273,8 +273,9 @@ class OrderWindow(QWidget):
             self.update_summary({})
             self.set_place_enabled(False)
 
-    def update_summary(self, draft: dict, subtotal: float = 0.0, est_cost: float = 0.0):
-        """draft: recipe_id -> (name, qty). subtotal/est_cost are the live money totals."""
+    def update_summary(self, draft: dict, subtotal: float = 0.0):
+        """draft: recipe_id -> (name, qty). subtotal is the live revenue total.
+        Cost/profit are not shown live — they appear in the post-placement popup."""
         if not draft:
             self.summary_label.setText("No items selected.")
             self.totals_label.setText("")
@@ -283,11 +284,8 @@ class OrderWindow(QWidget):
         total = sum(qty for _name, qty in draft.values())
         self.summary_label.setText("\n".join(lines) + f"\n\nTotal items: {total}")
 
-        profit = subtotal - est_cost
         self.totals_label.setText(
-            f"Subtotal:&nbsp;&nbsp;<b>{subtotal:.2f}</b><br>"
-            f"Est. cost:&nbsp;&nbsp;<b>{est_cost:.2f}</b><br>"
-            f"Est. profit:&nbsp;&nbsp;<b>{profit:.2f}</b>"
+            f"Subtotal:&nbsp;&nbsp;<b>{subtotal:.2f}</b>"
         )
 
     def show_shortages(self, shortages: list, errors: list):
