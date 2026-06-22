@@ -13,7 +13,8 @@ See `brief.txt` for structure and patterns; this file is the runtime trace.
 - `MainWindow.__init__` creates the 4 models once (`StockModel`,
   `StockBatchModel`, `RecipesModel`, `OrderModel`) and injects them into the 3
   controllers (dependency injection). The single `StockBatchModel` goes into both
-  `StockController` and `OrderModel`.
+  `OrderModel` and the `BatchController` that `StockController` creates and owns
+  (`StockController` receives the injected instance and forwards it to the child).
 - It wires each controller's `data_changed` **[signal]** to
   `OrderController.refresh_current_order`, then builds the sidebar and a
   `QStackedWidget` holding one widget per page (`page_map`).
@@ -65,29 +66,37 @@ See `brief.txt` for structure and patterns; this file is the runtime trace.
 
 ## 4. Stock batch — view / add / edit / delete / toggle
 
+Level 2 lives on the child `BatchController` (owned by `StockController`, sharing
+its stack + item_view). All batch work below runs there, via the shared
+`batch_model_instance`.
+
 **View batches (level 2)**
-1. `view_batches_requested(stock_id)` → `open_batch_window`.
+1. `view_batches_requested(stock_id)` → `StockController.open_batch_window`, which
+   looks up `get_stock_name` **[DB]** and delegates to
+   `BatchController.open_batch_window(stock_id, stock_name)`.
 2. **[lifetime]** any previous `batch_view` is removed from the stack and
    `deleteLater`'d.
-3. `get_stock_name` **[DB]** for the header; `get_batch_model(stock_id)` builds a
-   `QSqlTableModel` filtered to that stock **[DB]**.
-4. New `StockBatchWindow` is created, added to the stack, and shown. **Back** →
-   `close_batch_window` disposes it **[lifetime]**.
+3. `get_batch_model(stock_id)` builds a `QSqlTableModel` filtered to that stock
+   **[DB]** (header uses the passed-in `stock_name`).
+4. New `StockBatchWindow` is created, added to the (shared) stack, and shown.
+   **Back** → `BatchController.close_batch_window` returns to `item_view` and
+   disposes it **[lifetime]**.
 
-**Add / Edit / Delete / Toggle** (all via the shared `batch_model_instance`)
+**Add / Edit / Delete / Toggle** (all on `BatchController`, via the shared `batch_model_instance`)
 - Add: form → `handle_add_batch` validate → `insert_batch` **[DB]**.
 - Edit: `get_batch` **[DB]** → form → `update_batch` **[DB]**.
 - Delete: `delete_batch` **[DB]**. Toggle: `toggle_status` **[DB]**.
 - Every mutator calls `invalidate_available_stock()` **[cache]**, refreshes the
   table model, and emits its `batch_*` **[signal]**, which closes the form and
-  fires `data_changed` → Order refresh.
-- These `batch_*` relays are wired **once** in `StockController.__init__` (not per
-  window) because the batch model is persistent/shared.
+  fires `BatchController.data_changed`.
+- These `batch_*` relays are wired **once** in `BatchController.__init__` (not per
+  window) because the batch model is persistent/shared. `StockController` relays
+  `BatchController.data_changed` up through its own `data_changed` → Order refresh.
 
 ## 5. Recipe — add / edit
 
 **Add**
-1. `add_recipe_requested` → `open_add_recipe_window` **[lifetime]** creates
+1. `add_recipe_requested` → `open_add_recipe_form` **[lifetime]** creates
    `AddRecipeWindow`, reading `model.catalog` + `model.units` **[cache]**.
 2. `recipe_submitted` → `handle_recipe_submitted` validates each amount
    (`validate_recipe_item`), builds `Recipe` → `save_recipe`.
