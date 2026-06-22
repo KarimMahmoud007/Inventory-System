@@ -2,11 +2,10 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QStackedWidget
 
 from views.stock_window import StockWindow
-from views.stock_batch_window import StockBatchWindow
 from views.add_stock_item_window import AddStockItemWindow, StockMode
-from views.add_batch_window import AddBatchWindow, BatchMode
-from models.entities import StockItem, StockBatch
-from Utilities.validate_data import validate_stock_item, validate_stock_batch
+from models.entities import StockItem
+from Utilities.validate_data import validate_stock_item
+from controllers.batch_controller import BatchController
 
 
 class StockController(QObject):
@@ -18,41 +17,38 @@ class StockController(QObject):
         super().__init__()
 
         self.stack = QStackedWidget()
-        self.add_item_window = None
-        self.add_batch_window = None
-        self.batch_view = None
 
-        # Models are created once in MainWindow and injected. batch_model is the single
-        # shared StockBatchModel (also used by the order path) — persistent, not per-window.
-        self.batch_model_instance = batch_model
+        self.stock_form_window = None
 
         # ---- Level 1: Stock items ----
         self.stock_model = stock_model
         self.table_model = self.stock_model.get_stock_model()
+
         self.item_view = StockWindow(self.table_model)
         self.stack.addWidget(self.item_view)
 
+        # ---- Level 2: Batches (owned child controller) ----
+        # batch_model is the single shared StockBatchModel (also injected into
+        # OrderModel) — persistent, not per-window. The batch page lives in this
+        # controller's stack and returns to item_view, so both are passed in.
+        self.batch_controller = BatchController(batch_model, self.stack, self.item_view)
+        self.batch_controller.data_changed.connect(self.data_changed.emit)
+
         self.item_view.add_item_requested.connect(self.open_add_item_window)
         self.item_view.edit_item_requested.connect(self.open_edit_item_window)
-        self.item_view.delete_item_requested.connect(self.delete_item)
+        self.item_view.delete_item_requested.connect(self.handle_delete_item)
+
         self.item_view.view_batches_requested.connect(self.open_batch_window)
 
         self.stock_model.item_delete_rejected.connect(
             lambda msg: self.item_view.show_warning("Cannot Delete", msg))
         self.stock_model.item_insert_rejected.connect(
-            lambda msg: self.add_item_window and self.add_item_window.show_warning("Duplicate Name", msg))
+            lambda msg: self.stock_form_window and self.stock_form_window.show_warning("Duplicate Name", msg))
 
         # Relay stock-item changes to the Order page.
         self.stock_model.item_inserted_successfully.connect(self.data_changed.emit)
         self.stock_model.item_updated_successfully.connect(self.data_changed.emit)
         self.stock_model.item_deleted_successfully.connect(self.data_changed.emit)
-
-        # Relay batch changes to the Order page. The batch model is now persistent
-        # (shared/injected), so these are wired once here rather than per batch window.
-        self.batch_model_instance.batch_inserted_successfully.connect(self.data_changed.emit)
-        self.batch_model_instance.batch_updated_successfully.connect(self.data_changed.emit)
-        self.batch_model_instance.batch_deleted_successfully.connect(self.data_changed.emit)
-        self.batch_model_instance.batch_status_toggled.connect(self.data_changed.emit)
 
         self.stock_view = self.stack
 
@@ -61,105 +57,44 @@ class StockController(QObject):
     # ──────────────────────────────────────────────
 
     def open_add_item_window(self):
-        self.add_item_window = AddStockItemWindow(StockMode.INSERT.value, units=self.stock_model.units)
-        self.add_item_window.show()
-        self.add_item_window.stock_item_data_signal.connect(self.handle_add_item)
-        self.stock_model.item_inserted_successfully.connect(self.add_item_window.close)
+        self.stock_form_window = AddStockItemWindow(StockMode.INSERT.value, units=self.stock_model.units)
+        self.stock_form_window.show()
+
+        self.stock_form_window.stock_item_data_signal.connect(self.handle_add_item)
+        self.stock_model.item_inserted_successfully.connect(self.stock_form_window.close)
 
     def handle_add_item(self, data):
         if validate_stock_item(data):
             self.stock_model.insert_stock_item(data)
         else:
-            self.add_item_window.show_warning("Validation Error", "Name is required and unit must be selected.")
+            self.stock_form_window.show_warning("Validation Error", "Name is required and unit must be selected.")
 
     def open_edit_item_window(self, item_id: int):
         item = self.stock_model.get_stock_item(item_id)
+
         if item is None:
             return
 
-        self.add_item_window = AddStockItemWindow(StockMode.UPDATE.value, units=self.stock_model.units)
-        self.add_item_window.load_data(item)
-        self.add_item_window.show()
-        self.add_item_window.stock_item_update_data.connect(self.handle_edit_item)
-        self.stock_model.item_updated_successfully.connect(self.add_item_window.close)
+        self.stock_form_window = AddStockItemWindow(StockMode.UPDATE.value, units=self.stock_model.units)
+        self.stock_form_window.load_data(item)
+        self.stock_form_window.show()
+
+        self.stock_form_window.stock_item_update_data.connect(self.handle_edit_item)
+        self.stock_model.item_updated_successfully.connect(self.stock_form_window.close)
 
     def handle_edit_item(self, data):
         if validate_stock_item(data):
             self.stock_model.update_stock_item(data)
         else:
-            self.add_item_window.show_warning("Validation Error", "Name is required and unit must be selected.")
+            self.stock_form_window.show_warning("Validation Error", "Name is required and unit must be selected.")
 
-    def delete_item(self, item_id: int):
+    def handle_delete_item(self, item_id: int):
         self.stock_model.delete_stock_item(item_id)
 
     # ──────────────────────────────────────────────
-    #  Batch operations
+    #  Batch navigation (delegated to BatchController)
     # ──────────────────────────────────────────────
 
     def open_batch_window(self, stock_id):
-        if self.batch_view is not None:
-            self.stack.removeWidget(self.batch_view)
-            self.batch_view.deleteLater()
-            self.batch_view = None
-
         stock_name = self.stock_model.get_stock_name(stock_id)
-        # Rebuild the shared batch model's filtered table model for this stock item.
-        batch_model = self.batch_model_instance.get_batch_model(stock_id)
-        self.batch_view = StockBatchWindow(stock_id, stock_name, batch_model)
-
-        self.batch_view.back_requested.connect(self.close_batch_window)
-        self.batch_view.add_batch_requested.connect(self.open_add_batch_window)
-        self.batch_view.edit_batch_requested.connect(self.open_edit_batch_window)
-        self.batch_view.delete_batch_requested.connect(self.delete_batch)
-        self.batch_view.toggle_status_requested.connect(self.toggle_batch_status)
-
-        self.stack.addWidget(self.batch_view)
-        self.stack.setCurrentWidget(self.batch_view)
-
-    def close_batch_window(self):
-        self.stack.setCurrentWidget(self.item_view)
-        if self.batch_view is not None:
-            self.stack.removeWidget(self.batch_view)
-            self.batch_view.deleteLater()
-            self.batch_view = None
-
-    def open_add_batch_window(self):
-        self.add_batch_window = AddBatchWindow(BatchMode.INSERT.value)
-        self.add_batch_window.show()
-        self.add_batch_window.batch_data_signal.connect(self.handle_add_batch)
-        self.batch_model_instance.batch_inserted_successfully.connect(
-            self.add_batch_window.close
-        )
-
-    def handle_add_batch(self, data: StockBatch):
-        if validate_stock_batch(data):
-            data.stock_id = self.batch_view.stock_id
-            self.batch_model_instance.insert_batch(data)
-        else:
-            self.add_batch_window.show_warning("Validation Error", "Price and quantity must be positive, expiration must be after production date.")
-
-    def open_edit_batch_window(self, batch_id: int):
-        batch = self.batch_model_instance.get_batch(batch_id)
-        if batch is None:
-            return
-
-        self.add_batch_window = AddBatchWindow(BatchMode.UPDATE.value)
-        self.add_batch_window.load_data(batch)
-        self.add_batch_window.show()
-        self.add_batch_window.batch_update_data.connect(self.handle_edit_batch)
-        self.batch_model_instance.batch_updated_successfully.connect(
-            self.add_batch_window.close
-        )
-
-    def handle_edit_batch(self, data: StockBatch):
-        if validate_stock_batch(data):
-            data.stock_id = self.batch_view.stock_id
-            self.batch_model_instance.update_batch(data)
-        else:
-            self.add_batch_window.show_warning("Validation Error", "Price and quantity must be positive, expiration must be after production date.")
-
-    def delete_batch(self, batch_id: int):
-        self.batch_model_instance.delete_batch(batch_id)
-
-    def toggle_batch_status(self, batch_id: int):
-        self.batch_model_instance.toggle_status(batch_id)
+        self.batch_controller.open_batch_window(stock_id, stock_name)

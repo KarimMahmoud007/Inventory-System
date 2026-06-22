@@ -13,59 +13,62 @@ class RecipesController(QObject):
     def __init__(self, recipes_model):
         super().__init__()
 
-        self.add_recipe_window = None
+        self.recipe_form_window = None
 
         self.model = recipes_model
 
         self.recipes_view = RecipesPage()
-        self.recipes_view.add_recipe_requested.connect(self.open_add_recipe_window)
-        self.recipes_view.edit_recipe_requested.connect(self.open_edit_recipe_window)
+
+        self.recipes_view.add_recipe_requested.connect(self.open_add_recipe_form)
+        self.recipes_view.edit_recipe_requested.connect(self.open_edit_recipe_form)
+
         self.model.recipe_saved_successfully.connect(self._refresh_recipes)
         self.model.recipe_updated_successfully.connect(self._refresh_recipes)
+
         self.model.recipe_saved_successfully.connect(self.data_changed.emit)
         self.model.recipe_updated_successfully.connect(self.data_changed.emit)
+
         self._refresh_recipes()
 
-    def open_add_recipe_window(self):
-        self.add_recipe_window = AddRecipeWindow(RecipeMode.INSERT, catalog=self.model.catalog, units=self.model.units)
-        self.add_recipe_window.show()
+    def open_add_recipe_form(self):
+        self.recipe_form_window = AddRecipeWindow(RecipeMode.INSERT, catalog=self.model.catalog, units=self.model.units)
+        self.recipe_form_window.show()
 
-        self.add_recipe_window.recipe_submitted.connect(self.handle_recipe_submitted)
-        self.model.recipe_saved_successfully.connect(self.add_recipe_window.close)
+        self.recipe_form_window.recipe_submitted.connect(self.handle_recipe_submitted)
+        self.model.recipe_saved_successfully.connect(self.recipe_form_window.close)
 
-    def handle_recipe_submitted(self, name, price, items):
-        recipe_items = []
-        for id,stock_id, amount, unit_id in items:
-            if not validate_recipe_item(amount):
-                self.add_recipe_window.show_warning("Validation Error", "Quantity must be greater than zero.")
-                return
-            recipe_items.append(RecipeItem(id=None,stock_id=stock_id, amount=amount, unit_id=unit_id))
-
-        recipe = Recipe(name=name, price=price, recipe_items=recipe_items)
-        self.model.save_recipe(recipe)
-
-    def open_edit_recipe_window(self, recipe_id: int):
+    def open_edit_recipe_form(self, recipe_id: int):
         recipe = self.model.get_recipe(recipe_id)
         if recipe is None:
             return
 
-        self.add_recipe_window = AddRecipeWindow(RecipeMode.EDIT, catalog=self.model.catalog, units=self.model.units)
-        self.add_recipe_window.load_data(recipe)
-        self.add_recipe_window.show()
+        self.recipe_form_window = AddRecipeWindow(RecipeMode.EDIT, catalog=self.model.catalog, units=self.model.units)
+        self.recipe_form_window.load_data(recipe)
+        self.recipe_form_window.show()
 
-        self.add_recipe_window.recipe_edit_submitted.connect(self.handle_recipe_edit_submitted)
-        self.model.recipe_updated_successfully.connect(self.add_recipe_window.close)
+        self.recipe_form_window.recipe_edit_submitted.connect(self.handle_recipe_edit_submitted)
+        self.model.recipe_updated_successfully.connect(self.recipe_form_window.close)
 
-    def handle_recipe_edit_submitted(self, recipe_id, name, price, items):
+    def _build_recipe_items(self, items) -> list[RecipeItem] | None:
         recipe_items = []
         for ir_id, stock_id, amount, unit_id in items:
             if not validate_recipe_item(amount):
-                self.add_recipe_window.show_warning("Validation Error", "Quantity must be greater than zero.")
-                return
+                self.recipe_form_window.show_warning("Validation Error", "Quantity must be greater than zero.")
+                return None
             recipe_items.append(RecipeItem(id=ir_id, stock_id=stock_id, amount=amount, unit_id=unit_id))
+        return recipe_items
 
-        recipe = Recipe(id=recipe_id, name=name, price=price, recipe_items=recipe_items)
-        self.model.update_recipe(recipe)
+    def handle_recipe_submitted(self, name, price, items):
+        recipe_items = self._build_recipe_items(items)
+        if recipe_items is None:
+            return
+        self.model.save_recipe(Recipe(name=name, price=price, recipe_items=recipe_items))
+
+    def handle_recipe_edit_submitted(self, recipe_id, name, price, items):
+        recipe_items = self._build_recipe_items(items)
+        if recipe_items is None:
+            return
+        self.model.update_recipe(Recipe(id=recipe_id, name=name, price=price, recipe_items=recipe_items))
 
     def _refresh_recipes(self):
         self.recipes_view.set_recipes(self.model.get_recipes_catalog())
