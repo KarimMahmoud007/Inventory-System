@@ -23,7 +23,6 @@ class FinanceWindow(QWidget):
         self.setWindowTitle("Finance")
         self.setMinimumSize(800, 600)
         self._build_ui()
-        self._apply_style()
 
     # -- layout --------------------------------------------------------
     def _build_ui(self):
@@ -98,40 +97,6 @@ class FinanceWindow(QWidget):
             model.appendRow([QStandardItem(str(value)) for value in row])
         model.setHorizontalHeaderLabels(headers)
 
-    # -- style ---------------------------------------------------------
-    def _apply_style(self):
-        self.setStyleSheet("""
-            FinanceWindow { background: #FFF8F0; }
-            QLabel#pageTitle {
-                font-family: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
-                font-size: 32px; font-weight: bold; color: #8B4FCB;
-            }
-            QFrame#separator { color: #E8C4B0; max-height: 1px; }
-            QFrame#totalsCard {
-                background: #FFFDF7; border: 2px solid #D64545; border-radius: 10px;
-            }
-            QLabel#totalsCaption { font-family: Georgia; font-size: 12px; color: #8A7A6A; }
-            QLabel#totalsValue {
-                font-family: Georgia; font-size: 20px; font-weight: bold; color: #2C1810;
-            }
-            QLabel#sectionLabel {
-                font-family: Georgia; font-size: 14px; font-weight: bold; color: #8B4FCB;
-            }
-            /* colour must be set alongside the background: under a dark system
-               palette the inherited text colour is white, i.e. invisible here. */
-            QTableView {
-                background: #FFFDF7; color: #2C1810;
-                border: 1px solid #E8C4B0; gridline-color: #E8C4B0;
-                font-family: Georgia; font-size: 13px;
-                selection-background-color: #FAE8E0; selection-color: #2C1810;
-            }
-            QHeaderView::section {
-                background: #FAE8E0; color: #2C1810;
-                border: none; border-right: 1px solid #E8C4B0;
-                padding: 6px; font-weight: bold;
-            }
-            QTableCornerButton::section { background: #FAE8E0; border: none; }
-        """)
 
     # -- events --------------------------------------------------------
     def _on_selection(self):

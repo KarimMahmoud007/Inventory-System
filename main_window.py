@@ -5,7 +5,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from pathlib import Path
 
+STYLESHEET = Path(__file__).parent / "styles" / "main.qss"
 
 
 from views.staff_window import StaffWindow
@@ -66,9 +68,7 @@ class MainWindow(QMainWindow):
         # -------------------
         sidebar = QWidget()
         sidebar.setFixedWidth(200)
-        sidebar.setStyleSheet("""
-            background-color: #2c3e50;
-        """)
+        sidebar.setObjectName("sidebar")
 
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setSpacing(2)
@@ -98,18 +98,7 @@ class MainWindow(QMainWindow):
         for name in self.page_map:
             btn = QPushButton(name)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet("""
-                QPushButton {
-                    color: white;
-                    padding: 12px;
-                    border: none;
-                    text-align: left;
-                    font-size: 14px;
-                }
-                QPushButton:hover {
-                    background-color: #34495e;
-                }
-            """)
+            btn.setObjectName("sidebarBtn")
             btn.clicked.connect(lambda checked, n=name: self.show_page(n))
             sidebar_layout.addWidget(btn)
 
@@ -129,6 +118,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication([])
+    app.setStyleSheet(STYLESHEET.read_text(encoding="utf-8"))
     window = MainWindow()
     window.show()
     app.exec()

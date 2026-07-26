@@ -104,7 +104,6 @@ class OrderWindow(QWidget):
         self.setWindowTitle("Place Order")
         self.setMinimumSize(800, 600)
         self._build_ui()
-        self._apply_style()
         self._populate_rows()
 
     # -- layout --------------------------------------------------------
@@ -210,50 +209,6 @@ class OrderWindow(QWidget):
             self.rows[recipe["id"]] = row
             self.list_layout.addWidget(row)
 
-    # -- style ---------------------------------------------------------
-    def _apply_style(self):
-        self.setStyleSheet("""
-            OrderWindow { background: #FFF8F0; }
-            QLabel#pageTitle {
-                font-family: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
-                font-size: 32px; font-weight: bold; color: #8B4FCB;
-            }
-            QFrame#separator { color: #E8C4B0; max-height: 1px; }
-            QScrollArea#scrollArea { background: transparent; }
-            QWidget#listContainer { background: transparent; }
-            QFrame#orderRow {
-                background: #FFFDF7;
-                border: 1px solid #E8C4B0;
-                border-radius: 8px;
-            }
-            QLabel#orderRowName {
-                font-family: Georgia; font-size: 13px; color: #2C1810;
-            }
-            QPushButton#counterBtn {
-                font-size: 18px; font-weight: bold; color: #2C1810;
-                background: #FAE8E0; border: 1px solid #D64545; border-radius: 6px;
-            }
-            QPushButton#counterBtn:hover { background: #D64545; color: #FFFDF7; }
-            QLabel#qtyLabel {
-                font-size: 14px; font-weight: bold; color: #2C1810;
-            }
-            QFrame#summaryPanel {
-                background: #FFFDF7; border: 2px solid #D64545; border-radius: 10px;
-            }
-            QLabel#summaryTitle {
-                font-family: Georgia; font-size: 16px; font-weight: bold; color: #8B4FCB;
-            }
-            QLabel#summaryBody { font-family: Georgia; font-size: 12px; color: #4A3728; }
-            QLabel#totalsBody { font-family: Georgia; font-size: 13px; color: #2C1810; }
-            QLabel#warningBody { font-family: Georgia; font-size: 12px; color: #C0392B; }
-            QLabel#emptyLabel { font-family: Georgia; font-size: 13px; color: #8A7A6A; }
-            QPushButton#placeBtn {
-                font-family: Georgia; font-size: 14px; font-weight: bold; color: #FFFFFF;
-                background: #27874E; border: none; border-radius: 6px; padding: 10px;
-            }
-            QPushButton#placeBtn:hover { background: #1E6B3E; }
-            QPushButton#placeBtn:disabled { background: #B7B7B7; color: #EEEEEE; }
-        """)
 
     # -- public API ----------------------------------------------------
     def set_recipes(self, recipes: list[dict], draft: dict | None = None):

@@ -32,7 +32,7 @@ class StockBatchWindow(QWidget):
         header_layout = QHBoxLayout()
 
         title = QLabel(f"Batches for: {stock_name}")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setObjectName("sectionTitle")
         header_layout.addWidget(title)
 
         header_layout.addStretch()

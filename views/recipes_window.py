@@ -29,7 +29,6 @@ class RecipeCard(QFrame):
         self.title       = title
         self.ingredients = ingredients or []
         self._build_ui()
-        self._apply_style()
 
     # -- layout --------------------------------------------------------
     def _build_ui(self):
@@ -96,75 +95,6 @@ class RecipeCard(QFrame):
         root.addWidget(self.body, 1)
         root.addWidget(self.footer)
 
-    # -- style ---------------------------------------------------------
-    def _apply_style(self):
-        self.setStyleSheet("""
-            RecipeCard {
-                background: #FFFDF7;
-                border: 2px solid #D64545;
-                border-radius: 10px;
-            }
-
-            QFrame#cardHeader {
-                background: #FAE8E0;
-                border-top-left-radius:  8px;
-                border-top-right-radius: 8px;
-                border-bottom: 2px solid #D64545;
-            }
-            QLabel#cardTitle {
-                font-family: Georgia;
-                font-size: 13px;
-                font-weight: bold;
-                color: #2C1810;
-                padding: 4px;
-            }
-
-            QFrame#cardBody {
-                background: #FFFDF7;
-            }
-            QLabel#ingredientItem {
-                font-family: Georgia;
-                font-size: 11px;
-                color: #4A3728;
-            }
-
-            QFrame#cardFooter {
-                background: #FFF0E8;
-                border-top: 1px solid #E8C4B0;
-                border-bottom-left-radius:  8px;
-                border-bottom-right-radius: 8px;
-            }
-            QPushButton#cardAddBtn:hover   { background: #27874E; }
-            QPushButton#cardAddBtn:pressed { background: #1E6B3E; }
-
-            QPushButton#cardEditBtn {
-                font-family: Georgia;
-                font-size: 10px;
-                font-weight: bold;
-                color: #FFFFFF;
-                background: #D67C2A;
-                border: none;
-                border-radius: 5px;
-                padding: 0 6px;
-            }
-            QPushButton#cardEditBtn:hover   { background: #B86820; }
-            QPushButton#cardEditBtn:pressed { background: #955318; }
-        """)
-
-    # -- hover border glow ---------------------------------------------
-    def enterEvent(self, event):
-        self.setStyleSheet(self.styleSheet().replace(
-            "border: 2px solid #D64545;",
-            "border: 2px solid #FF6B35;"
-        ))
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.setStyleSheet(self.styleSheet().replace(
-            "border: 2px solid #FF6B35;",
-            "border: 2px solid #D64545;"
-        ))
-        super().leaveEvent(event)
 
 
 # ------------------------------------------------------------------ #
@@ -188,7 +118,6 @@ class RecipesPage(QWidget):
         self.setWindowTitle("Recipes")
         self.setMinimumSize(900, 650)
         self._build_ui()
-        self._apply_style()
         self._populate_cards()
 
     # -- layout --------------------------------------------------------
@@ -269,43 +198,6 @@ class RecipesPage(QWidget):
                     ghost, total // self.COLUMNS, remainder + j
                 )
 
-    # -- style ---------------------------------------------------------
-    def _apply_style(self):
-        self.setStyleSheet("""
-            RecipesPage {
-                background: #FFF8F0;
-            }
-            QLabel#pageTitle {
-                font-family: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
-                font-size: 36px;
-                font-weight: bold;
-                color: #8B4FCB;
-                letter-spacing: 1px;
-            }
-            QPushButton#addBtn {
-                font-size: 22px;
-                font-weight: bold;
-                color: #2C1810;
-                background: #FFFDF7;
-                border: 2px solid #2C1810;
-                border-radius: 8px;
-            }
-            QPushButton#addBtn:hover {
-                background: #FAE8E0;
-                border-color: #D64545;
-                color: #D64545;
-            }
-            QPushButton#addBtn:pressed {
-                background: #D64545;
-                color: #FFFDF7;
-            }
-            QFrame#separator {
-                color: #E8C4B0;
-                max-height: 1px;
-            }
-            QScrollArea#scrollArea  { background: transparent; }
-            QWidget#gridContainer   { background: transparent; }
-        """)
 
     # -- slots ---------------------------------------------------------
     def _on_add_clicked(self):
