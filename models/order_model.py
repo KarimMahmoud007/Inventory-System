@@ -1,7 +1,7 @@
 from PySide6.QtCore import Signal
 from PySide6.QtSql import QSqlQuery
 from models.base_model import BaseModel
-from models.entities import Order, Shortage, ValidationResult
+from models.entities import BatchConsumption, Order, Shortage, ValidationResult
 from Utilities.units import convert
 
 
@@ -9,12 +9,14 @@ class OrderModel(BaseModel):
     order_placed_successfully = Signal(int)
     order_place_rejected = Signal(str)
 
-    def __init__(self, batch_model):
+    def __init__(self, batch_model, finance_model):
         """`batch_model` is the shared StockBatchModel injected by MainWindow — used
         for all stock_batch access during FIFO deduction (read available batches,
-        write the deducted quantities)."""
+        write the deducted quantities). `finance_model` owns costing: this model
+        creates the order with cost 0 and hands it the batches it consumed."""
         super().__init__()
         self.batches = batch_model
+        self.finance = finance_model
 
     # ──────────────────────────────────────────────
     #  Recipe → ingredient requirements
@@ -78,7 +80,7 @@ class OrderModel(BaseModel):
         and attach the live subtotal. Returns which ingredients are short and any
         fail-loud errors (missing mapping / incompatible units). Touches no real
         stock. Cost/profit are not estimated here — they are computed exactly at
-        placement (see _deduct_for_order)."""
+        placement by FinanceModel from the consumed batches."""
         required, errors = self._required_by_stock(order)
 
         shortages: list[Shortage] = []
@@ -119,6 +121,7 @@ class OrderModel(BaseModel):
         self.db.transaction()
         query = QSqlQuery(self.db)
 
+        # cost stays at the schema default 0 — FinanceModel fills it below.
         query.prepare("INSERT INTO orders (status) VALUES ('placed')")
         if not query.exec():
             print("Failed to insert order:", query.lastError().text())
@@ -142,25 +145,33 @@ class OrderModel(BaseModel):
                 self.order_place_rejected.emit("Could not save order items.")
                 return
 
-        cost = self._deduct_for_order(order)
-        if cost is None:
+        subtotal = self._order_subtotal(order)
+        query.prepare("UPDATE orders SET subtotal = ? WHERE id = ?")
+        query.addBindValue(subtotal)
+        query.addBindValue(order_id)
+        if not query.exec():
+            print("Failed to store order subtotal:", query.lastError().text())
+            self.db.rollback()
+            self.order_place_rejected.emit("Could not store order subtotal.")
+            return
+
+        consumptions = self._deduct_for_order(order)
+        if consumptions is None:
             self.db.rollback()
             self.order_place_rejected.emit("Stock deduction failed; order rolled back.")
             return
 
-        subtotal = self._order_subtotal(order)
-        query.prepare("UPDATE orders SET subtotal = ?, cost = ? WHERE id = ?")
-        query.addBindValue(subtotal)
-        query.addBindValue(cost)
-        query.addBindValue(order_id)
-        if not query.exec():
-            print("Failed to store order totals:", query.lastError().text())
+        # Finance owns the cost column; it shares this connection, so its writes
+        # join this transaction and roll back with it.
+        cost = self.finance.apply_order_cost(order_id, consumptions)
+        if cost is None:
             self.db.rollback()
-            self.order_place_rejected.emit("Could not store order totals.")
+            self.order_place_rejected.emit("Could not record order cost.")
             return
 
         self.db.commit()
         self.invalidate_available_stock()
+        self.finance.invalidate_finance()
         order.id = order_id
         order.subtotal = subtotal
         order.cost = cost
@@ -168,17 +179,18 @@ class OrderModel(BaseModel):
         print(f"Order {order_id} placed: subtotal={subtotal}, cost={cost}")
 
     # ──────────────────────────────────────────────
-    #  FIFO deduction (oldest batch first), returns total cost
+    #  FIFO deduction (oldest batch first), returns what was consumed
     # ──────────────────────────────────────────────
     def _deduct_for_order(self, order: Order):
         """Deduct each required ingredient amount from its available batches,
-        oldest-first (FIFO by added_at), pricing consumed amounts at each batch's
-        per-unit price. Rolls the remainder over to the next batch and flips a
-        depleted batch to out_of_stock (via StockBatchModel.deduct_batch). Runs inside
-        place_order's transaction — deduct_batch shares the same DB connection.
-        Returns the total ingredient cost, or None on any failure (caller rolls back)."""
+        oldest-first (FIFO by added_at). Rolls the remainder over to the next batch
+        and flips a depleted batch to out_of_stock (via StockBatchModel.deduct_batch).
+        Runs inside place_order's transaction — deduct_batch shares the same DB
+        connection. Returns the list of BatchConsumption records (batch, amount taken,
+        that batch's per-unit price) for FinanceModel to price, or None on any failure
+        (caller rolls back). No money is computed here."""
         required, _errors = self._required_by_stock(order)
-        total_cost = 0.0
+        consumptions: list[BatchConsumption] = []
 
         for stock_id, entry in required.items():
             remaining = entry[2]
@@ -188,15 +200,21 @@ class OrderModel(BaseModel):
                     break
                 take = min(batch_qty, remaining)
                 remaining -= take
-                total_cost += take * price
 
                 if not self.batches.deduct_batch(batch_id, take):
                     print("Batch deduction failed for batch", batch_id)
                     return None
+
+                consumptions.append(BatchConsumption(
+                    stock_batch_id=batch_id,
+                    stock_id=stock_id,
+                    amount=take,
+                    unit_price=price,
+                ))
 
             if remaining > 1e-9:
                 # Should not happen — validate_stock ran first — but never over-commit.
                 print(f"Insufficient stock for stock_id={stock_id} during deduction")
                 return None
 
-        return total_cost
+        return consumptions

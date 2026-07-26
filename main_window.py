@@ -15,11 +15,13 @@ from views.test_window import TestWindow
 from controllers.stock_controller import StockController
 from controllers.recipes_controller import RecipesController
 from controllers.order_controller import OrderController
+from controllers.finance_controller import FinanceController
 
 from models.stock_model import StockModel
 from models.stock_batch_model import StockBatchModel
 from models.recipes_model import RecipesModel
 from models.order_model import OrderModel
+from models.finance_model import FinanceModel
 
 
 
@@ -32,15 +34,21 @@ class MainWindow(QMainWindow):
         self.stock_model = StockModel()
         self.batch_model = StockBatchModel()
         self.recipes_model = RecipesModel()
-        self.order_model = OrderModel(self.batch_model)
+        self.finance_model = FinanceModel()
+        self.order_model = OrderModel(self.batch_model, self.finance_model)
 
         self.stock_controller = StockController(self.stock_model, self.batch_model)
         self.recipes_controller = RecipesController(self.recipes_model)
         self.order_controller = OrderController(self.order_model)
+        self.finance_controller = FinanceController(self.finance_model)
 
         # Keep the Order page in sync with stock/recipe edits made on other pages.
         self.stock_controller.data_changed.connect(self.order_controller.refresh_current_order)
         self.recipes_controller.data_changed.connect(self.order_controller.refresh_current_order)
+
+        # Finance follows the model's signal, not the order UI — the page stays
+        # correct even if the order flow is driven from somewhere else later.
+        self.order_model.order_placed_successfully.connect(self.finance_controller.refresh)
 
         super().__init__()
         self.setWindowTitle("Inventory System")
@@ -76,6 +84,7 @@ class MainWindow(QMainWindow):
             "Stock": self.stock_controller.stock_view,
             "Recipes": self.recipes_controller.recipes_view,
             "Order": self.order_controller.order_view,
+            "Finance": self.finance_controller.finance_view,
             "Staff": StaffWindow(),
             "Test": TestWindow(),
         }

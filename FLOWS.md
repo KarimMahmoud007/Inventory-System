@@ -10,13 +10,16 @@ See `brief.txt` for structure and patterns; this file is the runtime trace.
 
 ## 1. App startup & infrastructure
 
-- `MainWindow.__init__` creates the 4 models once (`StockModel`,
-  `StockBatchModel`, `RecipesModel`, `OrderModel`) and injects them into the 3
-  controllers (dependency injection). The single `StockBatchModel` goes into both
+- `MainWindow.__init__` creates the 5 models once (`StockModel`,
+  `StockBatchModel`, `RecipesModel`, `FinanceModel`, `OrderModel`) and injects them
+  into the 4 controllers (dependency injection). `FinanceModel` goes into both
+  `OrderModel` (which hands it the deducted batches to cost) and `FinanceController`. The single `StockBatchModel` goes into both
   `OrderModel` and the `BatchController` that `StockController` creates and owns
   (`StockController` receives the injected instance and forwards it to the child).
 - It wires each controller's `data_changed` **[signal]** to
-  `OrderController.refresh_current_order`, then builds the sidebar and a
+  `OrderController.refresh_current_order` and
+  `OrderModel.order_placed_successfully` → `FinanceController.refresh`, then builds
+  the sidebar and a
   `QStackedWidget` holding one widget per page (`page_map`).
 - **[lifetime]** Models, controllers, and page widgets are created at startup and
   live for the whole app. Batch windows and all form windows are the exception
@@ -133,18 +136,24 @@ its stack + item_view). All batch work below runs there, via the shared
    → `place_order`.
 2. Re-runs `validate_stock`; on failure → `order_place_rejected` **[signal]** →
    warning, stop.
-3. `db.transaction()` → INSERT `orders` + one `order_items` row each **[DB]**.
+3. `db.transaction()` → INSERT `orders` (**cost stays 0** — the schema default) +
+   one `order_items` row each **[DB]** → UPDATE `orders` with **subtotal only** **[DB]**.
 4. `_deduct_for_order`: for each required stock item, `get_available_batches`
    **[DB]** oldest-first, then `deduct_batch(batch_id, take)` **[DB]** subtracts
    the consumed amount, clamps a depleted batch to 0 and flips it to
    `out_of_stock`. It shares the connection, so it joins this transaction.
-   Accumulates the exact FIFO cost.
-5. UPDATE `orders` with subtotal + cost **[DB]** → commit →
-   `invalidate_available_stock()` **[cache]** → `order_placed_successfully`
-   **[signal]**. Any failure → `db.rollback()` (no partial deduction).
-6. `_on_order_placed`: profit = subtotal − cost, clears the draft, resets the
-   counters, shows the Subtotal/Cost/Profit popup. (Cost/profit are computed only
-   here — the dry-run shows subtotal only.)
+   Returns a `list[BatchConsumption]` — no money math here.
+5. `FinanceModel.apply_order_cost(order_id, consumptions)`: INSERT one
+   `order_batch_consumption` row per consumed batch **[DB]**, then
+   `UPDATE orders SET cost = ?` **[DB]** with `Σ amount × unit_price`. Same shared
+   connection → same transaction. Returns the cost, or `None` → rollback.
+6. commit → `invalidate_available_stock()` + `finance.invalidate_finance()`
+   **[cache]** → `order_placed_successfully` **[signal]**. Any failure at any step →
+   `db.rollback()` (no partial deduction, no order at cost 0).
+7. `_on_order_placed`: profit = subtotal − cost (read off the `Order` dataclass that
+   `place_order` wrote back), clears the draft, resets the counters, shows the
+   Subtotal/Cost/Profit popup. (Cost/profit exist only after placement — the dry-run
+   shows subtotal only.)
 
 ## 8. Cross-page live refresh
 
@@ -156,7 +165,20 @@ its stack + item_view). All batch work below runs there, via the shared
 - `RecipeOrderRow.set_quantity` restores counters **silently** (no
   `quantity_changed` emit) to avoid a feedback loop.
 
-## 9. Caches & invalidation
+## 9. Finance page
+
+- **[lifetime]** `FinanceController` + `FinanceWindow` are created once at startup
+  (like the other pages) and `refresh()` runs in the constructor.
+- `refresh()` reads `get_totals()` + `get_orders_summary()` **[cache]** and pushes
+  them into the view (totals cards + orders table); the breakdown panel is cleared.
+- Selecting an order row → `order_selected(id)` **[signal]** →
+  `get_order_cost_breakdown(id)` **[cache]** → `show_breakdown` fills the lower table
+  (one row per batch consumed: ingredient, batch, amount, unit, unit price, line cost).
+- After a placement, `OrderModel.order_placed_successfully` **[signal]** →
+  `FinanceController.refresh` — and because `place_order` cleared the finance caches
+  post-commit, that refresh re-queries **[DB]** and re-fills them.
+
+## 10. Caches & invalidation
 
 | Cache (`BaseModel`) | Filled by | Cleared by |
 |---|---|---|
@@ -165,6 +187,9 @@ its stack + item_view). All batch work below runs there, via the shared
 | `get_recipes_catalog` | recipe cards / order rows | `save_recipe`, `update_recipe` |
 | `get_available_stock(stock_id)` | dry-run + place_order | every `StockBatchModel` mutator; `place_order` post-commit |
 | `get_recipe_requirements(item_id)` | dry-run + deduction | `save_recipe`, `update_recipe`, and `sync_model` (stock name/unit affects it) |
+| `FinanceModel.get_orders_summary` | Finance page refresh | `invalidate_finance()` — `place_order` post-commit |
+| `FinanceModel.get_totals` | Finance page refresh | same |
+| `FinanceModel.get_order_cost_breakdown(order_id)` | Finance row selection | same |
 
 All stock writes go through `StockBatchModel` or `OrderModel`, so the
 available-stock cache is the single serialized mutation path and cannot go stale.

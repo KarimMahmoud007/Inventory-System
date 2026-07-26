@@ -77,16 +77,18 @@ class OrderController(QObject):
 
     def _on_order_placed(self, order_id: int):
         order = self._last_order
-        profit = order.subtotal - order.cost if order else 0.0
         self.draft.clear()
         self.order_view.reset_counters()
-        self.order_view.show_info(
-            "Order Placed",
-            f"Order #{order_id} placed and stock deducted.\n\n"
-            f"Subtotal: {order.subtotal:.2f}\n"
-            f"Cost: {order.cost:.2f}\n"
-            f"Profit: {profit:.2f}",
-        )
+
+        message = f"Order #{order_id} placed and stock deducted."
+        if order:
+            # subtotal/cost were written back onto the Order by place_order
+            message += (
+                f"\n\nSubtotal: {order.subtotal:.2f}"
+                f"\nCost: {order.cost:.2f}"
+                f"\nProfit: {order.subtotal - order.cost:.2f}"
+            )
+        self.order_view.show_info("Order Placed", message)
 
     # ──────────────────────────────────────────────
     #  Helpers
