@@ -1,7 +1,14 @@
+from contextlib import contextmanager
 from functools import lru_cache
 from PySide6.QtCore import QObject
 from PySide6.QtSql import QSqlQuery
-from Utilities.utilities import create_QtConnection
+from Utilities.utilities import create_qt_connection
+
+
+def _db():
+    """The shared connection, opening it if a cached static read runs before any
+    model was constructed."""
+    return BaseModel._shared_db or create_qt_connection()
 
 
 class BaseModel(QObject):
@@ -10,8 +17,27 @@ class BaseModel(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         if BaseModel._shared_db is None:
-            BaseModel._shared_db = create_QtConnection()
+            BaseModel._shared_db = create_qt_connection()
         self.db = BaseModel._shared_db
+
+    @contextmanager
+    def transaction(self):
+        """Run a write inside a DB transaction: commit on success, roll back on
+        any exception (which then propagates).
+
+        Every model shares one connection, so anything called inside the block
+        joins this transaction — that is how FinanceModel's ledger writes roll
+        back with OrderModel.place_order. SQLite has no nested transactions, so
+        blocks must not be nested.
+        """
+        self.db.transaction()
+        try:
+            yield
+        except Exception:
+            self.db.rollback()
+            raise
+        else:
+            self.db.commit()
 
     @property
     def units(self):
@@ -28,8 +54,7 @@ class BaseModel(QObject):
     @staticmethod
     @lru_cache
     def get_units():
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.exec("SELECT id, name FROM units ORDER BY id")
         units = []
         while query.next():
@@ -39,8 +64,7 @@ class BaseModel(QObject):
     @staticmethod
     @lru_cache
     def get_catalog():
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.exec("SELECT id, name FROM stock")
         catalog = []
         while query.next():
@@ -50,8 +74,7 @@ class BaseModel(QObject):
     @staticmethod
     @lru_cache
     def get_recipes_catalog():
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.exec("""
             SELECT i.id, i.name, i.price,
                    ir.amount, s.name, u.name
@@ -89,8 +112,7 @@ class BaseModel(QObject):
         lru_cache-wrapped so repeated dry-run checks during interactive counter
         clicks don't re-hit the database. Invalidate via invalidate_available_stock()
         after any committed stock mutation (order deduction or batch edit)."""
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.prepare(
             "SELECT COALESCE(SUM(quantity), 0) FROM stock_batch "
             "WHERE stock_id = ? AND status = 'available'"
@@ -114,8 +136,7 @@ class BaseModel(QObject):
         whenever items_recipe changes (recipe save/update) or a stock item's
         name/unit changes (affects stock_name / stock_unit, the latter feeding
         unit conversion during deduction)."""
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.prepare("""
             SELECT ir.stock_id, s.name, ir.amount, ru.name, su.name
             FROM items_recipe ir
@@ -138,16 +159,16 @@ class BaseModel(QObject):
         return tuple(rows)
 
     def invalidate_available_stock(self):
-        type(self).get_available_stock.cache_clear()
+        BaseModel.get_available_stock.cache_clear()
 
     def invalidate_recipe_requirements(self):
-        type(self).get_recipe_requirements.cache_clear()
+        BaseModel.get_recipe_requirements.cache_clear()
 
     def invalidate_catalog(self):
-        type(self).get_catalog.cache_clear()
+        BaseModel.get_catalog.cache_clear()
 
     def invalidate_recipes_catalog(self):
-        type(self).get_recipes_catalog.cache_clear()
+        BaseModel.get_recipes_catalog.cache_clear()
 
     def invalidate_units(self):
-        type(self).get_units.cache_clear()
+        BaseModel.get_units.cache_clear()

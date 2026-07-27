@@ -9,6 +9,6 @@ class HomeWindow(QWidget):
 
         title = QLabel("Home")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 24px;")
+        title.setObjectName("pageTitle")
 
         layout.addWidget(title)

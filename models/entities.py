@@ -54,6 +54,16 @@ class Order:
 
 
 @dataclass
+class BatchConsumption:
+    """One batch touched by an order's FIFO deduction — the hand-off from
+    OrderModel to FinanceModel, which prices it and writes orders.cost."""
+    stock_batch_id: int
+    stock_id: int
+    amount: float
+    unit_price: float
+
+
+@dataclass
 class Shortage:
     stock_id: int
     stock_name: str

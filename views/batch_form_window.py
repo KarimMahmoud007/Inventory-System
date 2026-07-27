@@ -2,6 +2,7 @@ from PySide6.QtCore import QDate, Signal
 from PySide6.QtWidgets import QWidget, QDateEdit, QLineEdit, QFormLayout, QPushButton, QMessageBox
 from enum import Enum
 from models.entities import StockBatch
+from Utilities.validate_data import parse_float
 
 
 class BatchMode(Enum):
@@ -9,13 +10,14 @@ class BatchMode(Enum):
     UPDATE = 2
 
 
-class AddBatchWindow(QWidget):
-    batch_data_signal = Signal(StockBatch)
-    batch_update_data = Signal(StockBatch)
+class BatchFormWindow(QWidget):
+    batch_submitted = Signal(StockBatch)
+    batch_update_submitted = Signal(StockBatch)
 
     def __init__(self, mode):
         super().__init__()
         self.mode = mode
+        self._editing_id = None
 
         form_config = {
             "Price": QLineEdit,
@@ -49,16 +51,30 @@ class AddBatchWindow(QWidget):
         QMessageBox.warning(self, title, message)
 
     def save(self):
-        if self.mode == BatchMode.INSERT.value:
+        error = self._field_error()
+        if error:
+            self.show_warning("Validation Error", error)
+            return
+
+        if self.mode == BatchMode.INSERT:
             self._on_insert_clicked()
-        elif self.mode == BatchMode.UPDATE.value:
+        elif self.mode == BatchMode.UPDATE:
             self._on_update_clicked()
 
+    def _field_error(self) -> str | None:
+        """Check the numeric fields before wrap_data() converts them, so an empty
+        or non-numeric entry becomes a warning instead of an exception in a slot."""
+        for label in ("Price", "Quantity"):
+            _value, error = parse_float(self.entries[label].text(), label)
+            if error:
+                return error
+        return None
+
     def _on_insert_clicked(self):
-        self.batch_data_signal.emit(self.wrap_data())
+        self.batch_submitted.emit(self.wrap_data())
 
     def _on_update_clicked(self):
-        self.batch_update_data.emit(self.wrap_data())
+        self.batch_update_submitted.emit(self.wrap_data())
 
     def load_data(self, batch: StockBatch):
         self.entries["Price"].setText(str(batch.price))
@@ -71,10 +87,12 @@ class AddBatchWindow(QWidget):
         self.entries["Quantity"].setText(str(batch.quantity))
         self._editing_id = batch.id
 
-    def wrap_data(self, stock_id: int | None = None) -> StockBatch:
+    def wrap_data(self) -> StockBatch:
+        """Build the entity. Safe only after _field_error() has passed —
+        save() is the only caller and checks first."""
         return StockBatch(
-            id=getattr(self, '_editing_id', None),
-            stock_id=stock_id if stock_id is not None else 0,
+            id=self._editing_id,
+            stock_id=0,   # set by BatchController, which owns the current stock_id
             price=float(self.entries["Price"].text()),
             production_date=self.entries["Production Date"].date().toString("yyyy-MM-dd"),
             expiration_date=self.entries["Expiration Date"].date().toString("yyyy-MM-dd"),

@@ -77,25 +77,27 @@ class OrderController(QObject):
 
     def _on_order_placed(self, order_id: int):
         order = self._last_order
-        profit = order.subtotal - order.cost if order else 0.0
         self.draft.clear()
         self.order_view.reset_counters()
-        self.order_view.show_info(
-            "Order Placed",
-            f"Order #{order_id} placed and stock deducted.\n\n"
-            f"Subtotal: {order.subtotal:.2f}\n"
-            f"Cost: {order.cost:.2f}\n"
-            f"Profit: {profit:.2f}",
-        )
+
+        message = f"Order #{order_id} placed and stock deducted."
+        if order:
+            # subtotal/cost were written back onto the Order by place_order
+            message += (
+                f"\n\nSubtotal: {order.subtotal:.2f}"
+                f"\nCost: {order.cost:.2f}"
+                f"\nProfit: {order.subtotal - order.cost:.2f}"
+            )
+        self.order_view.show_info("Order Placed", message)
 
     # ──────────────────────────────────────────────
     #  Helpers
     # ──────────────────────────────────────────────
+    def _names_by_id(self) -> dict:
+        return {recipe["id"]: recipe["title"] for recipe in self.model.get_recipes_catalog()}
+
     def _recipe_name(self, recipe_id: int) -> str:
-        for recipe in self.model.get_recipes_catalog():
-            if recipe["id"] == recipe_id:
-                return recipe["title"]
-        return str(recipe_id)
+        return self._names_by_id().get(recipe_id, str(recipe_id))
 
     def _refresh_recipes(self):
         self.draft.clear()
@@ -106,7 +108,7 @@ class OrderController(QObject):
         the in-progress draft (drop recipes that no longer exist, refresh names), and
         re-run the dry-run so shortages/cost reflect the change. Preserves the draft."""
         catalog = self.model.get_recipes_catalog()
-        name_by_id = {recipe["id"]: recipe["title"] for recipe in catalog}
+        name_by_id = self._names_by_id()
         self.draft = {
             rid: (name_by_id[rid], qty)
             for rid, (name, qty) in self.draft.items()

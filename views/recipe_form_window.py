@@ -1,10 +1,11 @@
-from PySide6.QtCore import QDate, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QWidget, QDateEdit, QLineEdit, QFormLayout,
+    QWidget, QLineEdit, QFormLayout,
     QPushButton, QComboBox, QVBoxLayout, QHBoxLayout, QMessageBox
 )
 from enum import Enum
 from models.entities import Recipe
+from Utilities.validate_data import parse_float
 
 
 class RecipeMode(Enum):
@@ -12,7 +13,7 @@ class RecipeMode(Enum):
     EDIT = 2
 
 
-class AddRecipeWindow(QWidget):
+class RecipeFormWindow(QWidget):
 
     recipe_submitted = Signal(str, float, list)
     recipe_edit_submitted = Signal(int, str, float, list)
@@ -22,6 +23,7 @@ class AddRecipeWindow(QWidget):
         self.mode = mode
         self.catalog = catalog
         self.units = units
+        self._editing_id = None
 
         self.ingredient_rows: list[tuple[int | None, QComboBox, QLineEdit, QComboBox]] = []
 
@@ -79,16 +81,35 @@ class AddRecipeWindow(QWidget):
         self.form_layout.addRow("Unit", unit_combo)
 
     def _on_submit_recipe_clicked(self):
-        name = self.recipe_name_edit.text()
-        price = float(self.recipe_price_edit.text())
+        name = self.recipe_name_edit.text().strip()
+        if not name:
+            self.show_warning("Validation Error", "Recipe name is required.")
+            return
+
+        price, error = parse_float(self.recipe_price_edit.text(), "Recipe price")
+        if error:
+            self.show_warning("Validation Error", error)
+            return
+
+        if not self.ingredient_rows:
+            # A recipe with no ingredients cannot be ordered (the order flow fails
+            # loudly on it) and cannot be reopened for editing. Reject it here.
+            self.show_warning("Validation Error", "A recipe needs at least one ingredient.")
+            return
+
         items = []
         for ir_id, ing_combo, qty_edit, unit_combo in self.ingredient_rows:
+            amount, error = parse_float(qty_edit.text(), "Ingredient quantity")
+            if error:
+                self.show_warning("Validation Error", error)
+                return
             items.append((
                 ir_id,
                 ing_combo.currentData(),
-                float(qty_edit.text()),
+                amount,
                 unit_combo.currentData()
             ))
+
         if self.mode == RecipeMode.EDIT:
             self.recipe_edit_submitted.emit(self._editing_id, name, price, items)
         else:
