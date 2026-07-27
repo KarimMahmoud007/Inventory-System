@@ -12,15 +12,13 @@ from PySide6.QtCore import Qt, QSize, Signal
 # ------------------------------------------------------------------ #
 class RecipeCard(QFrame):
     """
-    A card widget showing a recipe thumbnail + title + ingredients list.
+    A card widget showing a recipe title + ingredients list.
 
     Signals
     -------
-    add_clicked(id: int)   -- user pressed the green Add button
-    edit_clicked(id: int)  -- user pressed the orange Edit button
+    edit_clicked(id: int)  -- user pressed the Edit button
     """
 
-    add_clicked  = Signal(int)
     edit_clicked = Signal(int)
 
     def __init__(self, id: int = 0, title: str = "", ingredients: list[str] | None = None, parent=None):
@@ -100,7 +98,7 @@ class RecipeCard(QFrame):
 # ------------------------------------------------------------------ #
 #  Recipes Page
 # ------------------------------------------------------------------ #
-class RecipesPage(QWidget):
+class RecipesWindow(QWidget):
     """
     Main recipes view -- a grid of RecipeCard widgets with a header bar.
     Pass `recipes` as a list of dicts: [{"title": ..., "ingredients": [...]}]
@@ -181,7 +179,6 @@ class RecipesPage(QWidget):
                 title=recipe.get("title", ""),
                 ingredients=recipe.get("ingredients", [])
             )
-            card.add_clicked.connect(self._on_card_add)
             card.edit_clicked.connect(self._on_card_edit)
             row, col = divmod(i, self.COLUMNS)
             self.card_grid.addWidget(card, row, col)
@@ -203,22 +200,12 @@ class RecipesPage(QWidget):
     def _on_add_clicked(self):
         self.add_recipe_requested.emit()
 
-    def _on_card_add(self, id: int):
-        """Green Add button on a card -- override or connect externally."""
-        print(f"Card Add: '{id}'")
-
     def _on_card_edit(self, id: int):
-        """Orange Edit button on a card -- override or connect externally."""
         self.edit_recipe_requested.emit(id)
 
     # -- public API ----------------------------------------------------
     def set_recipes(self, recipes: list[dict]):
         """Replace the full recipe list and refresh the grid."""
         self.recipes = recipes
-        self._populate_cards()
-
-    def add_recipe(self, recipe: dict):
-        """Append one recipe and refresh."""
-        self.recipes.append(recipe)
         self._populate_cards()
 

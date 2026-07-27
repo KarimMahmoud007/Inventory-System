@@ -5,6 +5,20 @@ from models.entities import BatchConsumption, Order, Shortage, ValidationResult
 from Utilities.units import convert
 
 
+class OrderFailed(Exception):
+    """Raised inside place_order's transaction block to abort and roll back.
+
+    Carries the user-facing message; the caller emits it as order_place_rejected.
+    """
+
+
+def _abort(message: str, detail=None):
+    """Log the technical detail, raise the user-facing message."""
+    if detail is not None:
+        print(f"{message} — {detail}")
+    raise OrderFailed(message)
+
+
 class OrderModel(BaseModel):
     order_placed_successfully = Signal(int)
     order_place_rejected = Signal(str)
@@ -21,13 +35,6 @@ class OrderModel(BaseModel):
     # ──────────────────────────────────────────────
     #  Recipe → ingredient requirements
     # ──────────────────────────────────────────────
-    def _recipe_requirements(self, item_id: int):
-        """Cached ingredient rows for a recipe (items) row — thin wrapper over
-        BaseModel.get_recipe_requirements. Returns a tuple of
-        (stock_id, stock_name, amount, recipe_unit, stock_unit) tuples; an empty
-        tuple means no ingredient mapping (caller must fail loudly)."""
-        return self.get_recipe_requirements(item_id)
-
     def _required_by_stock(self, order: Order):
         """Sum the required amount per stock item (converted into that item's own
         unit), across every order item. Returns (required, errors) where
@@ -39,7 +46,7 @@ class OrderModel(BaseModel):
         for item in order.items:
             if item.quantity <= 0:
                 continue
-            reqs = self._recipe_requirements(item.recipe_id)
+            reqs = self.get_recipe_requirements(item.recipe_id)
             if not reqs:
                 errors.append(
                     f"Recipe '{item.recipe_name}' has no ingredient mapping."
@@ -82,7 +89,11 @@ class OrderModel(BaseModel):
         stock. Cost/profit are not estimated here — they are computed exactly at
         placement by FinanceModel from the consumed batches."""
         required, errors = self._required_by_stock(order)
+        return self._check_availability(required, errors, self._order_subtotal(order))
 
+    def _check_availability(self, required, errors, subtotal) -> ValidationResult:
+        """The shortage comparison, split out so place_order can reuse one
+        requirement computation instead of redoing the expansion."""
         shortages: list[Shortage] = []
         for stock_id, (stock_name, stock_unit, total_required) in required.items():
             available = self.get_available_stock(stock_id)
@@ -95,19 +106,26 @@ class OrderModel(BaseModel):
                     unit=stock_unit,
                 ))
 
-        ok = not shortages and not errors
         return ValidationResult(
-            ok=ok,
+            ok=not shortages and not errors,
             shortages=shortages,
             errors=errors,
-            subtotal=self._order_subtotal(order),
+            subtotal=subtotal,
         )
 
     # ──────────────────────────────────────────────
     #  Place order (persist + deduct, transactional)
     # ──────────────────────────────────────────────
     def place_order(self, order: Order):
-        result = self.validate_stock(order)
+        """Persist the order and deduct its stock, or nothing at all.
+
+        Re-validates first — this is NOT redundant with the controller's dry-run,
+        which is debounced and can be stale by the time Place is clicked. The
+        requirement expansion is computed once here and threaded through to the
+        deduction, so the two can't disagree."""
+        required, errors = self._required_by_stock(order)
+        subtotal = self._order_subtotal(order)
+        result = self._check_availability(required, errors, subtotal)
         if not result.ok:
             msg_parts = list(result.errors)
             for s in result.shortages:
@@ -118,16 +136,37 @@ class OrderModel(BaseModel):
             self.order_place_rejected.emit("\n".join(msg_parts))
             return
 
-        self.db.transaction()
+        try:
+            with self.transaction():
+                order_id = self._persist_order(order, subtotal)
+                consumptions = self._deduct_for_order(required)
+                # Finance owns the cost column; it shares this connection, so its
+                # writes join this transaction and roll back with it.
+                cost = self.finance.apply_order_cost(order_id, consumptions)
+                if cost is None:
+                    _abort("Could not record order cost.")
+        except OrderFailed as exc:
+            self.order_place_rejected.emit(str(exc))
+            return
+
+        self.invalidate_available_stock()
+        self.finance.invalidate_finance()
+        order.id = order_id
+        order.subtotal = subtotal
+        order.cost = cost
+        self.order_placed_successfully.emit(order_id)
+        print(f"Order {order_id} placed: subtotal={subtotal}, cost={cost}")
+
+    def _persist_order(self, order: Order, subtotal: float) -> int:
+        """Write the order header and its items. Raises OrderFailed on any error,
+        which rolls the caller's transaction back."""
         query = QSqlQuery(self.db)
 
-        # cost stays at the schema default 0 — FinanceModel fills it below.
-        query.prepare("INSERT INTO orders (status) VALUES ('placed')")
+        # cost stays at the schema default 0 — FinanceModel fills it in.
+        query.prepare("INSERT INTO orders (status, subtotal) VALUES ('placed', ?)")
+        query.addBindValue(subtotal)
         if not query.exec():
-            print("Failed to insert order:", query.lastError().text())
-            self.db.rollback()
-            self.order_place_rejected.emit("Could not create the order.")
-            return
+            _abort("Could not create the order.", query.lastError().text())
         order_id = query.lastInsertId()
 
         for item in order.items:
@@ -140,56 +179,24 @@ class OrderModel(BaseModel):
             query.addBindValue(item.recipe_id)
             query.addBindValue(item.quantity)
             if not query.exec():
-                print("Failed to insert order item:", query.lastError().text())
-                self.db.rollback()
-                self.order_place_rejected.emit("Could not save order items.")
-                return
+                _abort("Could not save order items.", query.lastError().text())
 
-        subtotal = self._order_subtotal(order)
-        query.prepare("UPDATE orders SET subtotal = ? WHERE id = ?")
-        query.addBindValue(subtotal)
-        query.addBindValue(order_id)
-        if not query.exec():
-            print("Failed to store order subtotal:", query.lastError().text())
-            self.db.rollback()
-            self.order_place_rejected.emit("Could not store order subtotal.")
-            return
-
-        consumptions = self._deduct_for_order(order)
-        if consumptions is None:
-            self.db.rollback()
-            self.order_place_rejected.emit("Stock deduction failed; order rolled back.")
-            return
-
-        # Finance owns the cost column; it shares this connection, so its writes
-        # join this transaction and roll back with it.
-        cost = self.finance.apply_order_cost(order_id, consumptions)
-        if cost is None:
-            self.db.rollback()
-            self.order_place_rejected.emit("Could not record order cost.")
-            return
-
-        self.db.commit()
-        self.invalidate_available_stock()
-        self.finance.invalidate_finance()
-        order.id = order_id
-        order.subtotal = subtotal
-        order.cost = cost
-        self.order_placed_successfully.emit(order_id)
-        print(f"Order {order_id} placed: subtotal={subtotal}, cost={cost}")
+        return order_id
 
     # ──────────────────────────────────────────────
     #  FIFO deduction (oldest batch first), returns what was consumed
     # ──────────────────────────────────────────────
-    def _deduct_for_order(self, order: Order):
+    def _deduct_for_order(self, required: dict):
         """Deduct each required ingredient amount from its available batches,
         oldest-first (FIFO by added_at). Rolls the remainder over to the next batch
         and flips a depleted batch to out_of_stock (via StockBatchModel.deduct_batch).
-        Runs inside place_order's transaction — deduct_batch shares the same DB
-        connection. Returns the list of BatchConsumption records (batch, amount taken,
-        that batch's per-unit price) for FinanceModel to price, or None on any failure
-        (caller rolls back). No money is computed here."""
-        required, _errors = self._required_by_stock(order)
+
+        Takes the ALREADY-VALIDATED requirements map from place_order rather than
+        recomputing it, so deducting against unchecked requirements isn't
+        expressible. Runs inside place_order's transaction — deduct_batch shares
+        the same DB connection. Returns the list of BatchConsumption records
+        (batch, amount taken, that batch's per-unit price) for FinanceModel to
+        price, and raises OrderFailed on any failure. No money is computed here."""
         consumptions: list[BatchConsumption] = []
 
         for stock_id, entry in required.items():
@@ -202,8 +209,8 @@ class OrderModel(BaseModel):
                 remaining -= take
 
                 if not self.batches.deduct_batch(batch_id, take):
-                    print("Batch deduction failed for batch", batch_id)
-                    return None
+                    _abort("Stock deduction failed; order rolled back.",
+                           f"batch {batch_id}")
 
                 consumptions.append(BatchConsumption(
                     stock_batch_id=batch_id,
@@ -213,8 +220,9 @@ class OrderModel(BaseModel):
                 ))
 
             if remaining > 1e-9:
-                # Should not happen — validate_stock ran first — but never over-commit.
-                print(f"Insufficient stock for stock_id={stock_id} during deduction")
-                return None
+                # Should not happen — availability was checked first — but never
+                # over-commit.
+                _abort("Stock deduction failed; order rolled back.",
+                       f"insufficient stock for stock_id={stock_id}")
 
         return consumptions

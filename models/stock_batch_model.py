@@ -9,32 +9,45 @@ class StockBatchModel(BaseModel):
     batch_updated_successfully = Signal()
     batch_deleted_successfully = Signal()
     batch_status_toggled = Signal()
+    # Any write that failed. Without this a failed save is indistinguishable
+    # from a successful one.
+    operation_failed = Signal(str)
 
     def __init__(self):
         super().__init__()
-        self.model = None
+        self.table = None
 
-    def get_batch_model(self, stock_id: int):
-        self.model = QSqlTableModel(self, self.db)
-        self.model.setTable("stock_batch")
-        self.model.setFilter(f"stock_id = {stock_id}")
-        self.model.select()
-        return self.model
+    def _failed(self, action: str, error) -> None:
+        print(f"{action} failed:", error.text())
+        self.operation_failed.emit(f"{action} failed: {error.text()}")
+
+    def get_batch_table(self, stock_id: int):
+        self.table = QSqlTableModel(self, self.db)
+        self.table.setTable("stock_batch")
+        self.table.setFilter(f"stock_id = {stock_id}")
+        self.table.select()
+        return self.table
 
     def insert_batch(self, batch: StockBatch):
-        row = self.model.rowCount()
-        self.model.insertRow(row)
-        self.model.setData(self.model.index(row, 1), batch.stock_id)
-        self.model.setData(self.model.index(row, 2), float(batch.price))
-        self.model.setData(self.model.index(row, 3), batch.production_date)
-        self.model.setData(self.model.index(row, 4), batch.expiration_date)
-        self.model.setData(self.model.index(row, 5), float(batch.quantity))
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        # By field name, not column number — a schema reorder must not silently
+        # write values into the wrong columns.
+        for field, value in (
+            ("stock_id", batch.stock_id),
+            ("price", float(batch.price)),
+            ("production_date", batch.production_date),
+            ("expiration_date", batch.expiration_date),
+            ("quantity", float(batch.quantity)),
+        ):
+            self.table.setData(self.table.index(row, self.table.fieldIndex(field)), value)
 
-        if not self.model.submitAll():
-            print("Batch insert failed:", self.model.lastError().text())
+        if not self.table.submitAll():
+            self.table.revertAll()
+            self._failed("Adding the batch", self.table.lastError())
         else:
-            self.model.select()
-            self.model.refresh()
+            self.table.select()
+            self.table.refresh()
             self.invalidate_available_stock()
             self.batch_inserted_successfully.emit()
 
@@ -64,10 +77,10 @@ class StockBatchModel(BaseModel):
         query.addBindValue(float(batch.quantity))
         query.addBindValue(batch.id)
         if not query.exec():
-            print("Batch update failed:", query.lastError().text())
+            self._failed("Updating the batch", query.lastError())
         else:
-            self.model.select()
-            self.model.refresh()
+            self.table.select()
+            self.table.refresh()
             self.invalidate_available_stock()
             self.batch_updated_successfully.emit()
 
@@ -76,10 +89,10 @@ class StockBatchModel(BaseModel):
         query.prepare("DELETE FROM stock_batch WHERE id=?")
         query.addBindValue(batch_id)
         if not query.exec():
-            print("Batch delete failed:", query.lastError().text())
+            self._failed("Deleting the batch", query.lastError())
         else:
-            self.model.select()
-            self.model.refresh()
+            self.table.select()
+            self.table.refresh()
             self.invalidate_available_stock()
             self.batch_deleted_successfully.emit()
 
@@ -98,10 +111,10 @@ class StockBatchModel(BaseModel):
         query.addBindValue(new_status)
         query.addBindValue(batch_id)
         if not query.exec():
-            print("Status toggle failed:", query.lastError().text())
+            self._failed("Toggling the batch status", query.lastError())
         else:
-            self.model.select()
-            self.model.refresh()
+            self.table.select()
+            self.table.refresh()
             self.invalidate_available_stock()
             self.batch_status_toggled.emit()
 

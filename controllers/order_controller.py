@@ -93,11 +93,11 @@ class OrderController(QObject):
     # ──────────────────────────────────────────────
     #  Helpers
     # ──────────────────────────────────────────────
+    def _names_by_id(self) -> dict:
+        return {recipe["id"]: recipe["title"] for recipe in self.model.get_recipes_catalog()}
+
     def _recipe_name(self, recipe_id: int) -> str:
-        for recipe in self.model.get_recipes_catalog():
-            if recipe["id"] == recipe_id:
-                return recipe["title"]
-        return str(recipe_id)
+        return self._names_by_id().get(recipe_id, str(recipe_id))
 
     def _refresh_recipes(self):
         self.draft.clear()
@@ -108,7 +108,7 @@ class OrderController(QObject):
         the in-progress draft (drop recipes that no longer exist, refresh names), and
         re-run the dry-run so shortages/cost reflect the change. Preserves the draft."""
         catalog = self.model.get_recipes_catalog()
-        name_by_id = {recipe["id"]: recipe["title"] for recipe in catalog}
+        name_by_id = self._names_by_id()
         self.draft = {
             rid: (name_by_id[rid], qty)
             for rid, (name, qty) in self.draft.items()

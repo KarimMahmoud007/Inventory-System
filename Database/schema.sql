@@ -84,3 +84,12 @@ CREATE TABLE IF NOT EXISTS order_batch_consumption (
 );
 
 CREATE INDEX IF NOT EXISTS idx_obc_order ON order_batch_consumption(order_id);
+
+
+-- Calendar schedule for InventoryInspector: the date each named watch last ran,
+-- as 'YYYY-MM-DD'. Survives restarts, so a daily watch fires once per calendar
+-- day regardless of when the app happens to be opened.
+CREATE TABLE IF NOT EXISTS inspector_state (
+    name TEXT PRIMARY KEY,
+    last_run_on TEXT NOT NULL
+);

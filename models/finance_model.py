@@ -1,8 +1,7 @@
 from functools import lru_cache
 from PySide6.QtSql import QSqlQuery
-from models.base_model import BaseModel
+from models.base_model import BaseModel, _db
 from models.entities import BatchConsumption
-from Utilities.utilities import create_QtConnection
 
 
 def total_cost(consumptions: list[BatchConsumption]) -> float:
@@ -59,8 +58,7 @@ class FinanceModel(BaseModel):
         """One row per non-draft order, newest first, as a tuple of dicts with
         profit computed here. Cached — cleared by invalidate_finance() after a
         placement."""
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.exec(
             "SELECT id, created_at, subtotal, cost FROM orders "
             "WHERE status != 'draft' ORDER BY id DESC"
@@ -82,8 +80,7 @@ class FinanceModel(BaseModel):
     @lru_cache
     def get_totals():
         """(revenue, cost, profit) across all non-draft orders."""
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.exec(
             "SELECT COALESCE(SUM(subtotal), 0), COALESCE(SUM(cost), 0) FROM orders "
             "WHERE status != 'draft'"
@@ -99,8 +96,7 @@ class FinanceModel(BaseModel):
     def get_order_cost_breakdown(order_id):
         """Per-batch cost detail for one order, as a tuple of
         (stock_name, unit, batch_id, amount, unit_price, line_cost) tuples."""
-        db = BaseModel._shared_db or create_QtConnection()
-        query = QSqlQuery(db)
+        query = QSqlQuery(_db())
         query.prepare("""
             SELECT s.name, u.name, c.stock_batch_id, c.amount, c.unit_price,
                    c.amount * c.unit_price
@@ -127,6 +123,6 @@ class FinanceModel(BaseModel):
 
     def invalidate_finance(self):
         """Clear every finance cache. Called post-commit by OrderModel.place_order."""
-        type(self).get_orders_summary.cache_clear()
-        type(self).get_totals.cache_clear()
-        type(self).get_order_cost_breakdown.cache_clear()
+        FinanceModel.get_orders_summary.cache_clear()
+        FinanceModel.get_totals.cache_clear()
+        FinanceModel.get_order_cost_breakdown.cache_clear()

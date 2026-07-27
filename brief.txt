@@ -1,3 +1,5 @@
+
+
 INVENTORY MANAGEMENT SYSTEM — PROJECT BRIEF
 ==============================================
 
@@ -17,48 +19,52 @@ ARCHITECTURE PATTERN: Modified MVC (Model-View-Controller)
 
 FILE STRUCTURE:
   Inventory/
-  ├── main.py                        # Quick DB inspector — prints table names (utility, NOT app entry)
   ├── main_window.py                 # APP ENTRY POINT — QMainWindow with sidebar + QStackedWidget; creates all models and injects them into controllers (one shared StockBatchModel)
   ├── brief.txt                      # This file
   ├── FLOWS.md                       # Per-operation runtime trace (object lifetimes, [DB]/[cache]/[signal] markers) — companion to this brief
   ├── README.md
+  ├── test_finance_cost.py           # Self-check: pure cost math (no Qt, no DB)
+  ├── test_inventory_inspector.py    # Self-check: inspector scheduling/failure contract + expiry-query boundaries
+  ├── test_form_validation.py        # Self-check: form field parsing rejects bad input, and a failed write emits operation_failed
   ├── .gitignore / .idea/            # IDE config
   ├── qt-env/.venv/                  # Python virtual environments
   ├── Database/
   │   ├── schema.sql                 # DDL for all tables
   │   ├── Inventory.db               # SQLite database file
-  │   ├── main_database.py           # Runs schema.sql (splits statements for FK support + seed data)
+  │   ├── main_database.py           # Runs schema.sql via Utilities.apply_schema. Must be invoked as `python -m Database.main_database` from the project root — it imports Utilities, so the direct path form has never worked
   │   └── seed.py                    # Test-data reset: applies schema.sql, wipes every data table, inserts 5 stock items / 8 batches / 5 recipes / 0 orders. Plain sqlite3 (no PySide6). Data is chosen to exercise the order flow: two Flour batches at different prices (FIFO cost), 0.5 kg Butter (shortage at 3 Cakes), "Mystery Pie" with no ingredients (fail-loud), "Odd Brew" asking Milk in g (unit-conversion fail-loud)
   ├── models/
   │   ├── base_model.py              # BaseModel(QObject) — _shared_db singleton, properties (units/catalog/recipes_catalog) delegating to @staticmethod @lru_cache, invalidate_* methods; also caches get_available_stock(stock_id) and get_recipe_requirements(item_id) [recipe→ingredient JOIN, returns tuple of (stock_id,name,amount,recipe_unit,stock_unit)] with invalidate_recipe_requirements()
   │   ├── entities.py                # Dataclasses: StockItem, StockBatch, RecipeItem, Recipe, OrderItem, Order, BatchConsumption, Shortage, ValidationResult
   │   ├── stock_model.py             # Stock item CRUD — insert via QSqlRelationalTableModel (rejects duplicate name), get/update/delete via QSqlQuery by PK (delete DB-restricted by batches), rejection signals, extends BaseModel
-  │   ├── stock_batch_model.py       # Stock batch CRUD — insert via QSqlTableModel, get/update/delete/toggle via QSqlQuery by PK, extends BaseModel; all mutators call invalidate_available_stock() (keeps order dry-run cache fresh). Public order-path API: get_available_batches(stock_id) [FIFO-ordered (id,qty,price) read] + deduct_batch(batch_id,amount) [write, subtracts amount from current quantity, flips depleted→out_of_stock (clamps qty to 0), no UI model/signals, shares the connection so it joins place_order's transaction]
-  │   ├── recipes_model.py           # Recipes — save_recipe/get_recipe/update_recipe with transaction, cache clears via invalidate_*(), extends BaseModel
+  │   ├── stock_batch_model.py       # Stock batch CRUD — insert via QSqlTableModel, get/update/delete/toggle via QSqlQuery by PK, extends BaseModel; all mutators call invalidate_available_stock() (keeps order dry-run cache fresh). Public order-path API: get_available_batches(stock_id) [FIFO-ordered (id,qty,price) read] + deduct_batch(batch_id,amount) [write, subtracts amount from current quantity, flips depleted→out_of_stock (clamps qty to 0), no UI model/signals, shares the connection so it joins place_order's transaction].. Emits operation_failed(str) on any failed write. The Qt item model is self.table (built by get_batch_table); the order-path API deliberately bypasses it. Monitoring lives in expiry_watches.py, not here
+  │   ├── recipes_model.py           # Recipes — insert_recipe/get_recipe/update_recipe with transaction, cache clears via invalidate_*(), extends BaseModel
   │   ├── order_model.py             # Orders — __init__(batch_model, finance_model) takes the injected shared StockBatchModel + FinanceModel; validate_stock(order)->ValidationResult (cached dry-run, no real stock), place_order(order) (transactional persist+FIFO deduct, creates the order with cost 0 and lets finance fill it), _deduct_for_order (oldest batch first by added_at, via batch_model.get_available_batches/deduct_batch) returns list[BatchConsumption] — no money math, _order_subtotal reads recipe price from the cached recipes_catalog (no items query), order_placed_successfully/order_place_rejected signals, extends BaseModel
+  │   ├── inventory_inspector.py     # InventoryInspector(name, sql, period_days=None, params=(), check_seconds=10) — one instance = one watch over the inventory. run() executes the injected SQL and returns list[tuple], or None if the query failed (the manual trigger, always callable, never touches the schedule); check_due() runs it only if period_days calendar days have passed since the persisted last-run date. triggered(name, rows) Signal fires only when rows exist; prints them to the console meanwhile. Extends BaseModel for the shared connection only (no caches). Used by expiry_watches.create_expiry_inspectors()
+  │   ├── expiry_watches.py          # EXPIRED_SQL / EXPIRING_SOON_SQL + create_expiry_inspectors() — the two daily watches, kept out of StockBatchModel (they share only the connection). Knobs: EXPIRY_WARNING_WINDOW = "+7 day", EXPIRY_CHECK_DAYS = 1. Built and held by MainWindow
   │   └── finance_model.py           # Costing + finance reporting — module-level total_cost(consumptions) (pure), apply_order_cost(order_id, consumptions) writes the order_batch_consumption ledger and UPDATEs orders.cost (no transaction of its own — joins place_order's), cached reads get_orders_summary()/get_totals()/get_order_cost_breakdown(order_id) + invalidate_finance(), extends BaseModel
   ├── views/
   │   ├── home_window.py             # Home page (placeholder QLabel)
   │   ├── stock_window.py            # Level 1 item list: QTableView with right-click (View Batches/Edit/Delete), signals emit PK (int), uses _get_item_id(row), exposes show_warning()
   │   ├── stock_batch_window.py      # Level 2 batch table: filtered by stock_id, header "{name} batches", right-click (Edit/Toggle/Delete), Back button, signals emit PK (int)
-  │   ├── add_stock_item_window.py   # Form: Name + Unit QComboBox, INSERT/UPDATE modes, StockMode enum
-  │   ├── add_batch_window.py        # Form: Price + Dates + Quantity QDateEdit/QLineEdit, INSERT/UPDATE modes, BatchMode enum
+  │   ├── stock_item_form_window.py   # Form: Name + Unit QComboBox, INSERT/UPDATE modes, StockMode enum
+  │   ├── batch_form_window.py        # Form: Price + Dates + Quantity QDateEdit/QLineEdit, INSERT/UPDATE modes, BatchMode enum
   │   ├── recipes_window.py          # Recipe cards in QGridLayout, add_recipe_requested + edit_recipe_requested signals, RecipeCard emits id: int
-  │   ├── add_recipe_window.py       # Add recipe form: dynamic ingredient rows, INSERT/EDIT modes, emits recipe_submitted or recipe_edit_submitted
+  │   ├── recipe_form_window.py       # Add recipe form: dynamic ingredient rows, INSERT/EDIT modes, emits recipe_submitted or recipe_edit_submitted
   │   ├── order_window.py            # Order page: scrollable recipe rows each with a +/- counter (RecipeOrderRow), running summary panel + inline shortage/error warnings + Place Order button, signals quantity_changed(recipe_id,qty)/place_order_requested, no DB access, exposes show_warning/show_info
   │   ├── finance_window.py          # Finance page: Revenue/Cost/Profit cards, orders table (QStandardItemModel — profit is computed, not a column), per-order cost breakdown table, order_selected(int) signal, no DB access
   │   ├── staff_window.py            # Staff page (placeholder)
   │   └── test_window.py             # Test page (placeholder)
   ├── controllers/
   │   ├── stock_controller.py        # __init__(stock_model, batch_model) — injected. Level 1 = stock items only: owns the internal QStackedWidget + item_view, all item ops pass PKs to stock_model. Owns a child BatchController (constructed with the injected batch_model + its stack + item_view); open_batch_window(stock_id) is a thin delegator that looks up stock_name via stock_model.get_stock_name and calls the child. Relays the child's data_changed upward via its own data_changed
-  │   ├── batch_controller.py        # __init__(batch_model, stack, item_view) — owned/constructed by StockController. Level 2 = batches: owns the whole batch page lifecycle (open_batch_window(stock_id, stock_name) builds/adds the StockBatchWindow to the shared stack, Back → close_batch_window returns to item_view, add/edit/delete/toggle). Uses the shared/injected batch_model (rebuilds its filtered table model via get_batch_model(stock_id)); its batch_* → data_changed relays are wired once in __init__. Exposes data_changed (relayed up by StockController)
-  │   ├── recipes_controller.py      # __init__(recipes_model) — injected. Owns both views, handles validation, entity construction, save orchestration, refreshes cards on save, passes model.catalog+model.units to AddRecipeWindow
+  │   ├── batch_controller.py        # __init__(batch_model, stack, item_view) — owned/constructed by StockController. Level 2 = batches: owns the whole batch page lifecycle (open_batch_window(stock_id, stock_name) builds/adds the StockBatchWindow to the shared stack, Back → close_batch_window returns to item_view, add/edit/delete/toggle). Uses the shared/injected batch_model (rebuilds its filtered table model via get_batch_table(stock_id)); its batch_* → data_changed relays are wired once in __init__. Exposes data_changed (relayed up by StockController)
+  │   ├── recipes_controller.py      # __init__(recipes_model) — injected. Owns both views, handles validation, entity construction, save orchestration, refreshes cards on save, passes model.catalog+model.units to RecipeFormWindow
   │   ├── finance_controller.py      # __init__(finance_model) — injected. Owns FinanceWindow (read side only), refresh() pushes get_totals()+get_orders_summary(), order_selected → get_order_cost_breakdown. MainWindow wires OrderModel.order_placed_successfully → refresh
   │   └── order_controller.py        # __init__(order_model) — injected. Owns OrderWindow, keeps in-memory draft dict {recipe_id:(name,qty)} (qty 0 removes), debounced (QTimer 150ms) dry-run on counter change → enables/disables Place + shows warnings, on place calls model.place_order, clears draft + resets counters on success
   └── Utilities/
-      ├── utilities.py               # create_QtConnection() [QSqlDatabase singleton with relative path], create_connection() [sqlite3 for schema init]
+      ├── utilities.py               # DB_PATH/CONNECTION_NAME constants; create_qt_connection() [QSqlDatabase singleton, RAISES RuntimeError if the open fails — never exit()], close_qt_connection() [closes on shutdown; deliberately no removeDatabase, models still hold handles], create_connection() [sqlite3 for schema init], apply_schema(cursor, path) [shared statement-splitting loader]
       ├── units.py                   # UNIT_FACTORS map (g/kg=mass, mL/L=volume) + convert(amount, from, to) — raises ValueError on unknown unit or cross-dimension conversion (used by order dry-run/deduction)
-      └── validate_data.py           # validate_data() for stock form fields + validate_recipe_item(amount) returns bool
+      └── validate_data.py           # parse_float(text, field_name) -> (value, error) for RAW form fields, called before entity construction; plus validate_stock_item/validate_stock_batch/validate_recipe_item on built entities. Imported by both stock and batch controllers and by all three form windows
 
 DATABASE SCHEMA (schema.sql):
   stock          — id, name, unit_of_measure (FK→units.id)  (product definitions, no batch data)
@@ -70,6 +76,7 @@ DATABASE SCHEMA (schema.sql):
   order_items    — id, order_id (FK→orders.id ON DELETE CASCADE), item_id (FK→items.id), quantity  (one row per recipe ordered)
   order_batch_consumption — id, order_id (FK→orders.id ON DELETE CASCADE), stock_batch_id (FK→stock_batch.id), amount, unit_price  (finance ledger: one row per batch consumed by an order; orders.cost = SUM(amount*unit_price); line cost is derived, not stored; index idx_obc_order on order_id)
   units          — id, name (seed: kg, mL, L, g)  (reference)
+  inspector_state — name (PK), last_run_on (TEXT 'YYYY-MM-DD')  (InventoryInspector calendar schedule; created on demand by the inspector too, so an existing DB needs no migration — and an older last_run_at REAL table is dropped/recreated by the same code)
 
 Seeded data: units → [(1,'kg'), (2,'mL'), (3,'L'), (4,'g')]
 
@@ -78,7 +85,7 @@ KEY PATTERNS / CONVENTIONS:
   2. QSqlRelationalTableModel + QTableView for stock items (FK display via setRelation)
   3. QSqlTableModel + QTableView for stock batches (filtered by stock_id)
   4. QSqlQuery for custom queries (recipes catalog, recipe get/update)
-  5. Named singleton DB connection via create_QtConnection() / QSqlDatabase::contains()
+  5. Named singleton DB connection via create_qt_connection() / QSqlDatabase::contains()
   6. QStackedWidget sidebar navigation (MainWindow.page_map dict)
   7. Controller-internal QStackedWidget for two-level stock navigation (items → batches), now split across two controllers: StockController owns the stack + item_view (Level 1), its child BatchController owns the batch page (Level 2) and is passed that same stack + item_view to navigate
   8. ObjectName-based Qt stylesheets for custom widget styling
@@ -91,10 +98,10 @@ KEY PATTERNS / CONVENTIONS:
  15. Transactional recipe save/update (db.transaction + commit/rollback)
   16. Recipe update: UPDATE items header, UPSERT items_recipe rows by id (UPDATE existing, INSERT new, DELETE removed)
   17. All destructive/edit operations use PK-based QSqlQuery (WHERE id = ?) instead of row-index-based model access — safe under any sorting/filtering
- 18. FK enforcement is enabled on the Qt connection (create_QtConnection runs "PRAGMA foreign_keys = ON" after open — per-connection, so required at runtime; schema.sql's pragma only covers the sqlite3 setup connection)
- 19. Stock delete is DB-enforced: stock_batch.stock_id is REFERENCES stock(id) ON DELETE RESTRICT. delete_stock_item lets the DELETE fail and, on FK violation (nativeErrorCode 787/19), emits item_delete_rejected(str) instead of querying for batches first
+ 18. FK enforcement is enabled on the Qt connection (create_qt_connection runs "PRAGMA foreign_keys = ON" after open — per-connection, so required at runtime; schema.sql's pragma only covers the sqlite3 setup connection)
+ 19. Stock delete is DB-enforced: stock_batch.stock_id is REFERENCES stock(id) ON DELETE RESTRICT. delete_stock_item lets the DELETE fail and, on FK violation, emits item_delete_rejected(str) instead of querying for batches first. The detection is StockModel._is_fk_violation: ON DELETE RESTRICT is enforced through an internal trigger and surfaces as nativeErrorCode 1811, NOT the 787 a direct FK violation gives — the old 787/19-only check never matched, so the rejection message never reached the user. Codes 19/787/1811 are accepted plus a 'FOREIGN KEY' text backstop, since extended codes vary by SQLite build
  20. Stock insert rejects duplicate names: insert_stock_item runs an in-code case-insensitive check (name = ? COLLATE NOCASE, trimmed) and emits item_insert_rejected(str) if a match exists
- 21. Rejection signals (item_delete_rejected / item_insert_rejected) carry a user message; StockController wires them to view.show_warning (StockWindow now exposes show_warning; AddStockItemWindow already did)
+ 21. Rejection signals (item_delete_rejected / item_insert_rejected) carry a user message; StockController wires them to view.show_warning (StockWindow now exposes show_warning; StockItemFormWindow already did)
  22. Order dry-run: OrderModel.validate_stock expands order items → recipe ingredients (items_recipe) → sums required per stock item → compares against cached BaseModel.get_available_stock(stock_id). Pure read, touches no real stock. Returns ValidationResult(ok, shortages, errors). The recipe→ingredient expansion (_recipe_requirements) is a thin wrapper over the cached BaseModel.get_recipe_requirements(item_id) — invalidated by invalidate_recipe_requirements() on recipe save/update (recipes_model) AND on every stock mutation (stock_model.sync_model, since the cached stock_unit/name would otherwise go stale and corrupt unit conversion).
  23. Available-stock cache: BaseModel.get_available_stock(stock_id) is @staticmethod @lru_cache (sum of available stock_batch.quantity in the item's own unit). Invalidation is EXPLICIT via invalidate_available_stock() (.cache_clear()) after every committed stock mutation — called by OrderModel.place_order (post-commit) AND by all StockBatchModel mutators (insert/update/delete/toggle). All stock writes go through StockBatchModel or OrderModel, so the cache cannot go stale; this is the single serialized stock-mutation path.
  24. FIFO/oldest-batch-first deduction: OrderModel._deduct_for_order gets each ingredient's available batches (quantity>0, ORDER BY added_at ASC, id ASC) via StockBatchModel.get_available_batches, deducts from the oldest, rolls the remainder to the next, and passes the consumed amount to StockBatchModel.deduct_batch, which subtracts it and flips a depleted batch to status='out_of_stock'. Both read and write go through the shared batch model's public API (not raw SQL in OrderModel). Runs inside place_order's db.transaction() — deduct_batch shares the connection, so it joins the transaction (rollback on any failure → no partial deduction). It returns a list[BatchConsumption] (stock_batch_id, stock_id, amount, unit_price) instead of a cost — see #31.
@@ -108,12 +115,34 @@ KEY PATTERNS / CONVENTIONS:
  31. Finance owns the cost: OrderModel INSERTs the order with cost left at the schema default 0 and writes only subtotal; it then hands the deducted batches (list[BatchConsumption]) to FinanceModel.apply_order_cost(order_id, consumptions), which INSERTs one order_batch_consumption ledger row per batch and UPDATEs orders.cost = Σ(amount × unit_price). FinanceModel opens no transaction and shares BaseModel._shared_db, so it joins place_order's transaction — a failure anywhere rolls the whole thing back, and no order is ever committed with a stale cost of 0. OrderModel no longer computes money beyond the subtotal; the cost math lives in the pure module-level finance_model.total_cost() (covered by test_finance_cost.py).
  32. Finance caches: FinanceModel.get_orders_summary()/get_totals()/get_order_cost_breakdown(order_id) are @staticmethod @lru_cache like the BaseModel reads (tuples, not lists, so they stay immutable). All three are cleared by invalidate_finance(), called by OrderModel.place_order post-commit alongside invalidate_available_stock(). The Finance page refreshes off OrderModel.order_placed_successfully (wired in MainWindow to FinanceController.refresh) — the model's signal, not the order controller's, so Finance does not depend on the order UI.
 
+ 33. InventoryInspector (models/inventory_inspector.py): the app's only push-based read. One instance watches one SQL query. Two modes off one class — with period_days it self-schedules, without one it only runs when someone calls run(). The schedule is CALENDAR DAYS, not elapsed seconds and not app uptime: the last-run DATE is persisted in inspector_state, so a daily watch fires once per day whatever time the app is opened (an interval-of-seconds version drifts later every run and eventually skips days). The constructor calls check_due() immediately so a restart catches up on anything missed while closed, then a QTimer poll (check_seconds, default 10) re-checks in case the app is left open across midnight — a tick is a date subtraction against in-memory state, no query. Dates come from stdlib datetime.date; because date.today() is local, the expiry SQL uses date('now','localtime') so both agree on "today". A last run in the future (system clock moved backwards) counts as due rather than parking the watch. Results go out on triggered(name, rows) only when rows exist; the built-in console print is a ponytail-marked placeholder until a notification feature subscribes. Covered by test_inventory_inspector.py.
+
+ 33b. Inspector failure contract: run() returns None on query failure and [] on a successful query with no rows — two outcomes that mean opposite things (broken vs nothing to report), which for a monitoring component must not share a return value. check_due() stamps only when run() did NOT fail, so a broken query stays due and retries on the next tick instead of going quiet for a day; on success the stamp is written before reporting, so a crash mid-report can at worst repeat a run, never skip one. An empty result still counts as a run. The error print is deduped against self._last_error (prints once, again if the message changes, cleared on recovery) so a broken watch doesn't spam every poll. No registry/scheduler service — the caller constructs an instance per watch and must hold the reference (dropping it collects the QTimer and the watch stops silently).
+
+ 34. Expiry watches (models/expiry_watches.py): create_expiry_inspectors() builds the two concrete inspectors, and MainWindow holds the returned list — "expired-batches" (expiration_date < date('now')) and "expiring-soon-batches" (date('now') <= expiration_date <= date('now', '+7 day'), the window bound as a parameter, not interpolated). Both filter to status='available' AND quantity > 0, since an expired batch nobody can sell is not news, and the two sets are disjoint by construction (today's date counts as "soon", never "expired"). Both use date('now','localtime') to match the scheduler's local date.today(). They run once per calendar day and, because InventoryInspector checks on construction, a batch that expired while the app was closed is reported at the next startup. MainWindow holds them so their QTimers survive, and MainWindow.closeEvent stops them. They live outside StockBatchModel because monitoring shares nothing with batch CRUD or the order-path API except the connection. Nothing consumes triggered yet — output is the console print.
+
+ 35. Form input is parsed before an entity exists: every numeric form field goes through Utilities.validate_data.parse_float(text, field_name) -> (value, error) FIRST, and the form shows a warning and returns on error. The entity validators (validate_stock_item/validate_stock_batch/validate_recipe_item) run on an already-built entity, so they structurally cannot protect the float() conversion that builds it — an empty Price used to raise ValueError inside a Qt slot, which PySide6 >= 6.5 turns into a process abort. BatchFormWindow._field_error() checks Price+Quantity before save() emits; RecipeFormWindow._on_submit_recipe_clicked checks name, price, at-least-one-ingredient, and every ingredient quantity. A recipe with no ingredients is rejected at the form because it can neither be ordered (fail-loud) nor reopened for editing. Covered by test_form_validation.py.
+
+ 36. Failed writes are reported, not printed: StockModel and StockBatchModel each expose operation_failed(str) and a private _failed(action, error) that logs AND emits. Every write failure path goes through it, so a failed save can no longer look identical to a successful one. StockController wires it to item_view.show_warning; BatchController._on_operation_failed prefers the open form window and falls back to the batch page. The specific rejections (item_insert_rejected duplicate name, item_delete_rejected FK) still take precedence over the generic signal.
+
+ 37. One transaction helper: BaseModel.transaction() is a @contextmanager that runs db.transaction(), commits on success and rolls back on ANY exception (which then propagates). Used by OrderModel.place_order and RecipesModel.insert_recipe/update_recipe. Failure inside a block raises a module-private exception (OrderFailed / RecipeWriteFailed) instead of repeating rollback+emit+return at every failure point — place_order had five such blocks that had already drifted apart. Because all models share one connection, anything called inside the block joins the transaction: that is how FinanceModel.apply_order_cost's ledger writes roll back with the order. SQLite has no nested transactions, so blocks must not nest.
+
+ 38. place_order computes the requirement expansion ONCE and threads it through: _required_by_stock + _order_subtotal run once, _check_availability (split out of validate_stock) does the shortage comparison, and _deduct_for_order(required) takes the already-validated dict rather than recomputing it. Previously the deduction re-derived requirements and discarded the error list, which was safe only because validation happened to have run first. The internal re-validation is NOT redundant with the controller's dry-run — that is debounced 150ms and can be stale when Place is clicked.
+
+ 39. Qt item models are written by field name, not column number: insert_batch and insert_stock_item use model.fieldIndex("..."), so a schema reorder cannot silently write into the wrong column. The ONE exception is the stock unit column: QSqlRelationalTableModel.setRelation renames the related field (unit_of_measure becomes 'units_name_2'), so fieldIndex returns -1 and the position must be named — StockModel.UNIT_COLUMN, defined next to the setRelation call that creates the coupling. The domain model's Qt item model is self.table (get_stock_table/get_batch_table); "model" alone always means the domain model.
+
 MAINTENANCE:
   THIS FILE MUST BE UPDATED whenever any edit, addition, or removal is made to the project
   (files, structure, patterns, dependencies, schema, etc.) to keep it accurate for every session.
 
 KNOWN ISSUES / TODOs:
   - No pyproject.toml
-  - No type hints in models/controllers
-  - Error handling is minimal (most errors just printed to console)
-  - validate_data.py has dead code (no longer imported after stock_controller rewrite) — references old StockItem fields
+  - Type hints are partial (models mostly annotated, controllers mostly not)
+  - Utilities/ and Database/ are capitalised while models/views/controllers are not. Left alone
+    deliberately: the working tree is on a case-insensitive Windows filesystem, so a case-only
+    directory rename is not safely reversible here
+  - All DB work runs on the GUI thread. Fine at this scale; revisit if a report query gets heavy
+  - lru_cache maxsize is the 128 default; get_available_stock starts thrashing above 128 stock items
+  - Form windows are parentless top-level QWidgets kept alive by a single controller attribute;
+    lifetime is by convention rather than parenting
+  - No .ui files, no packaging, no CI — self-checks are run by hand

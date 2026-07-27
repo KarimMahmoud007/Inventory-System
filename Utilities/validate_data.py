@@ -2,6 +2,20 @@ from datetime import datetime
 from models.entities import StockItem, StockBatch
 
 
+def parse_float(text: str, field_name: str) -> tuple[float | None, str | None]:
+    """Parse a raw form field into a float. Returns (value, error); error is None
+    on success.
+
+    Forms must call this BEFORE constructing an entity — the dataclass validators
+    below run on an already-built entity, so they cannot protect the float()
+    conversion that builds it.
+    """
+    try:
+        return float(text), None
+    except (ValueError, TypeError):
+        return None, f"{field_name} must be a number."
+
+
 def validate_stock_item(item: StockItem) -> bool:
     try:
         name = item.name.strip()

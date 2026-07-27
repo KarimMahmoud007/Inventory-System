@@ -67,6 +67,7 @@ RECIPE_ROWS = [
 TABLES_TO_WIPE = [
     "order_batch_consumption", "order_items", "orders",
     "wasted_stock", "items_recipe", "items", "stock_batch", "stock",
+    "inspector_state",   # a reset shouldn't leave a daily watch thinking it already ran
 ]
 
 

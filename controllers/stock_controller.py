@@ -2,7 +2,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QStackedWidget
 
 from views.stock_window import StockWindow
-from views.add_stock_item_window import AddStockItemWindow, StockMode
+from views.stock_item_form_window import StockItemFormWindow, StockMode
 from models.entities import StockItem
 from Utilities.validate_data import validate_stock_item
 from controllers.batch_controller import BatchController
@@ -22,7 +22,7 @@ class StockController(QObject):
 
         # ---- Level 1: Stock items ----
         self.stock_model = stock_model
-        self.table_model = self.stock_model.get_stock_model()
+        self.table_model = self.stock_model.get_stock_table()
 
         self.item_view = StockWindow(self.table_model)
         self.stack.addWidget(self.item_view)
@@ -44,23 +44,25 @@ class StockController(QObject):
             lambda msg: self.item_view.show_warning("Cannot Delete", msg))
         self.stock_model.item_insert_rejected.connect(
             lambda msg: self.stock_form_window and self.stock_form_window.show_warning("Duplicate Name", msg))
+        self.stock_model.operation_failed.connect(
+            lambda msg: self.item_view.show_warning("Operation Failed", msg))
 
         # Relay stock-item changes to the Order page.
         self.stock_model.item_inserted_successfully.connect(self.data_changed.emit)
         self.stock_model.item_updated_successfully.connect(self.data_changed.emit)
         self.stock_model.item_deleted_successfully.connect(self.data_changed.emit)
 
-        self.stock_view = self.stack
+        self.stock_page = self.stack
 
     # ──────────────────────────────────────────────
     #  Item operations
     # ──────────────────────────────────────────────
 
     def open_add_item_window(self):
-        self.stock_form_window = AddStockItemWindow(StockMode.INSERT.value, units=self.stock_model.units)
+        self.stock_form_window = StockItemFormWindow(StockMode.INSERT, units=self.stock_model.units)
         self.stock_form_window.show()
 
-        self.stock_form_window.stock_item_data_signal.connect(self.handle_add_item)
+        self.stock_form_window.stock_item_submitted.connect(self.handle_add_item)
         self.stock_model.item_inserted_successfully.connect(self.stock_form_window.close)
 
     def handle_add_item(self, data):
@@ -75,11 +77,11 @@ class StockController(QObject):
         if item is None:
             return
 
-        self.stock_form_window = AddStockItemWindow(StockMode.UPDATE.value, units=self.stock_model.units)
+        self.stock_form_window = StockItemFormWindow(StockMode.UPDATE, units=self.stock_model.units)
         self.stock_form_window.load_data(item)
         self.stock_form_window.show()
 
-        self.stock_form_window.stock_item_update_data.connect(self.handle_edit_item)
+        self.stock_form_window.stock_item_update_submitted.connect(self.handle_edit_item)
         self.stock_model.item_updated_successfully.connect(self.stock_form_window.close)
 
     def handle_edit_item(self, data):

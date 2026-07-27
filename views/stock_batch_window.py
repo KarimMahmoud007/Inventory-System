@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTableView, QHeaderView, QPushButton, QLabel, QAbstractItemView, QMenu
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTableView, QHeaderView, QPushButton, QLabel, QAbstractItemView, QMenu, QMessageBox
 
 
 class StockBatchWindow(QWidget):
@@ -57,6 +57,9 @@ class StockBatchWindow(QWidget):
 
         self.setLayout(layout)
         self.setWindowTitle("Stock Batches")
+
+    def show_warning(self, title: str, message: str):
+        QMessageBox.warning(self, title, message)
 
     def _on_add_clicked(self):
         self.add_batch_requested.emit()

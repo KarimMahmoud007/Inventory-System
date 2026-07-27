@@ -9,13 +9,14 @@ class StockMode(Enum):
     UPDATE = 2
 
 
-class AddStockItemWindow(QWidget):
-    stock_item_data_signal = Signal(StockItem)
-    stock_item_update_data = Signal(StockItem)
+class StockItemFormWindow(QWidget):
+    stock_item_submitted = Signal(StockItem)
+    stock_item_update_submitted = Signal(StockItem)
 
     def __init__(self, mode, units):
         super().__init__()
         self.mode = mode
+        self._editing_id = None
 
         self.entries = {}
 
@@ -42,16 +43,16 @@ class AddStockItemWindow(QWidget):
         QMessageBox.warning(self, title, message)
 
     def save(self):
-        if self.mode == StockMode.INSERT.value:
+        if self.mode == StockMode.INSERT:
             self._on_insert_clicked()
-        elif self.mode == StockMode.UPDATE.value:
+        elif self.mode == StockMode.UPDATE:
             self._on_update_clicked()
 
     def _on_insert_clicked(self):
-        self.stock_item_data_signal.emit(self.wrap_data())
+        self.stock_item_submitted.emit(self.wrap_data())
 
     def _on_update_clicked(self):
-        self.stock_item_update_data.emit(self.wrap_data())
+        self.stock_item_update_submitted.emit(self.wrap_data())
 
     def load_data(self, stock_item: StockItem):
         self.name_edit.setText(stock_item.name)
@@ -64,7 +65,7 @@ class AddStockItemWindow(QWidget):
 
     def wrap_data(self) -> StockItem:
         return StockItem(
-            id=getattr(self, '_editing_id', None),
+            id=self._editing_id,
             name=self.name_edit.text(),
             unit_id=self.unit_combo.currentData(),
         )
